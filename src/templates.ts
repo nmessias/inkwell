@@ -168,7 +168,7 @@ body { padding: 0; height: 100vh; overflow: hidden; margin: 0; }
   align-items: flex-start;
 }
 .reader-header.hidden {
-  transform: translateY(-100%);
+  display: none;
 }
 .header-left {
   flex: 0 0 65%;
@@ -254,7 +254,6 @@ body { padding: 0; height: 100vh; overflow: hidden; margin: 0; }
   bottom: 15%;
   width: 40%;
   z-index: 5;
-  cursor: pointer;
 }
 .click-zone-left { left: 0; }
 .click-zone-right { right: 0; }
@@ -265,7 +264,6 @@ body { padding: 0; height: 100vh; overflow: hidden; margin: 0; }
   right: 0;
   height: 15%;
   z-index: 6;
-  cursor: pointer;
 }
 .tap-zone-bottom {
   position: absolute;
@@ -274,7 +272,6 @@ body { padding: 0; height: 100vh; overflow: hidden; margin: 0; }
   right: 0;
   height: 15%;
   z-index: 6;
-  cursor: pointer;
 }
 .page-indicator {
   position: fixed;
@@ -303,7 +300,7 @@ body { padding: 0; height: 100vh; overflow: hidden; margin: 0; }
   z-index: 10;
 }
 .nav-fixed.hidden {
-  transform: translateY(100%);
+  display: none;
 }
 .nav-fixed .btn {
   flex: 1;
@@ -423,6 +420,7 @@ const READER_JS = `
   var columnGap = 0;
   var stepSize = 0;
   var totalPages = 1;
+  var totalPagesStr = ' / 1';
   var uiVisible = true;
   var hideTimeout = null;
   var resizeTimeout = null;
@@ -448,6 +446,7 @@ const READER_JS = `
   }
   
   function showUI() {
+    updateIndicator();
     header.className = headerBaseClass;
     footer.className = footerBaseClass;
     indicator.className = indicatorBaseClass;
@@ -518,6 +517,7 @@ const READER_JS = `
   
   // Settings modal
   var modal = document.querySelector('.settings-modal');
+  var modalBaseClass = modal ? modal.className : '';
   var settingsBtn = document.querySelector('.settings-btn');
   var settingsClose = document.querySelector('.settings-close');
   var fontDecrease = document.querySelector('.font-decrease');
@@ -527,19 +527,19 @@ const READER_JS = `
     settingsBtn.onclick = function(e) {
       if (e && e.stopPropagation) e.stopPropagation();
       if (hideTimeout) clearTimeout(hideTimeout);
-      if (modal) modal.className = modal.className + ' open';
+      if (modal) modal.className = modalBaseClass + ' open';
     };
   }
   if (settingsClose) {
     settingsClose.onclick = function() {
-      if (modal) modal.className = modal.className.replace(' open', '');
+      if (modal) modal.className = modalBaseClass;
       startHideTimer();
     };
   }
   if (modal) {
     modal.onclick = function(e) {
       if (e.target === modal) {
-        modal.className = modal.className.replace(' open', '');
+        modal.className = modalBaseClass;
         startHideTimer();
       }
     };
@@ -604,11 +604,12 @@ const READER_JS = `
     stepSize = columnWidth + columnGap;
     var scrollW = content.scrollWidth;
     totalPages = Math.max(1, Math.round(scrollW / stepSize));
+    totalPagesStr = ' / ' + totalPages;
     updateIndicator();
   }
   
   function updateIndicator() {
-    indicator.textContent = (currentPage + 1) + ' / ' + totalPages;
+    indicator.textContent = (currentPage + 1) + totalPagesStr;
   }
   
   // Debounced URL update - only update after 500ms of no page changes
@@ -640,7 +641,7 @@ const READER_JS = `
   function goToPageFast(page) {
     currentPage = page;
     content.scrollLeft = page * stepSize;
-    updateIndicator();
+    if (uiVisible) updateIndicator();
     scheduleUrlUpdate();
   }
   
@@ -824,15 +825,6 @@ const READER_JS = `
     var xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/chapter/' + chapterId, true);
     xhr.setRequestHeader('Content-Type', 'application/json');
-    xhr.onreadystatechange = function() {
-      if (xhr.readyState === 4) {
-        if (xhr.status === 200) {
-          console.log('Marked chapter ' + chapterId + ' as read');
-        } else {
-          console.log('Failed to mark chapter ' + chapterId + ' as read');
-        }
-      }
-    };
     xhr.send('{}');
   }
   
