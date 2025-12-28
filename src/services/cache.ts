@@ -1,13 +1,18 @@
-// SQLite database layer using Bun's built-in SQLite
+/**
+ * SQLite cache and session storage layer
+ * Using Bun's built-in SQLite
+ */
 import { Database } from "bun:sqlite";
-import type { Cookie, CacheEntry } from "./types";
-
-const DB_PATH = "./data/sessions.db";
+import { mkdirSync, existsSync } from "fs";
+import type { Cookie } from "../types";
+import { CACHE_TTL } from "../config";
 
 // Ensure data directory exists
-import { mkdirSync, existsSync } from "fs";
-if (!existsSync("./data")) {
-  mkdirSync("./data", { recursive: true });
+const DATA_DIR = "./data";
+const DB_PATH = `${DATA_DIR}/sessions.db`;
+
+if (!existsSync(DATA_DIR)) {
+  mkdirSync(DATA_DIR, { recursive: true });
 }
 
 const db = new Database(DB_PATH);
@@ -40,7 +45,8 @@ db.run(`
   )
 `);
 
-// Cookie operations
+// ============ Cookie Operations ============
+
 export function getCookies(): Cookie[] {
   return db.query("SELECT * FROM cookies").all() as Cookie[];
 }
@@ -66,8 +72,24 @@ export function clearCookies(): void {
   db.run("DELETE FROM cookies");
 }
 
-// Cache operations (5-minute default TTL)
-const DEFAULT_TTL = 5 * 60; // 5 minutes in seconds
+// Get cookies formatted for Playwright
+export function getCookiesForPlaywright(): { name: string; value: string; domain: string; path: string }[] {
+  const cookies = getCookies();
+  return cookies.map(c => ({
+    name: c.name,
+    value: c.value,
+    domain: ".royalroad.com",
+    path: "/"
+  }));
+}
+
+// Check if session cookies are configured
+export function hasSessionCookies(): boolean {
+  const identity = getCookie(".AspNetCore.Identity.Application");
+  return !!identity;
+}
+
+// ============ Text Cache Operations ============
 
 export function getCache(url: string): string | null {
   const now = Math.floor(Date.now() / 1000);
@@ -86,7 +108,7 @@ export function isCached(url: string): boolean {
   return !!entry;
 }
 
-export function setCache(url: string, content: string, ttlSeconds: number = DEFAULT_TTL): void {
+export function setCache(url: string, content: string, ttlSeconds: number = CACHE_TTL.DEFAULT): void {
   const expiresAt = Math.floor(Date.now() / 1000) + ttlSeconds;
   db.run(
     `INSERT INTO cache (url, content, expires_at) 
@@ -106,8 +128,13 @@ export function clearExpiredCache(): void {
   db.run("DELETE FROM image_cache WHERE expires_at <= ?", [now]);
 }
 
-// Image cache operations
-const IMAGE_TTL = 30 * 24 * 60 * 60; // 30 days for images
+// Clear cache by type (e.g., "chapter", "fiction", "toplist")
+export function clearCacheByType(type: string): number {
+  const result = db.run(`DELETE FROM cache WHERE url LIKE ?`, [`${type}:%`]);
+  return result.changes;
+}
+
+// ============ Image Cache Operations ============
 
 export function getImageCache(url: string): { data: Buffer; contentType: string } | null {
   const now = Math.floor(Date.now() / 1000);
@@ -118,7 +145,12 @@ export function getImageCache(url: string): { data: Buffer; contentType: string 
   return { data: entry.data, contentType: entry.content_type };
 }
 
-export function setImageCache(url: string, data: Buffer, contentType: string, ttlSeconds: number = IMAGE_TTL): void {
+export function setImageCache(
+  url: string,
+  data: Buffer,
+  contentType: string,
+  ttlSeconds: number = CACHE_TTL.IMAGE
+): void {
   const expiresAt = Math.floor(Date.now() / 1000) + ttlSeconds;
   db.run(
     `INSERT INTO image_cache (url, data, content_type, expires_at) 
@@ -128,7 +160,13 @@ export function setImageCache(url: string, data: Buffer, contentType: string, tt
   );
 }
 
-// Cache statistics
+export function clearImageCache(): number {
+  const result = db.run("DELETE FROM image_cache");
+  return result.changes;
+}
+
+// ============ Cache Statistics ============
+
 export interface CacheStats {
   totalEntries: number;
   totalSize: number;
@@ -157,7 +195,7 @@ export function getCacheStats(): CacheStats {
   
   for (const entry of entries) {
     const typeMatch = entry.url.match(/^([a-z]+):/);
-    const type = typeMatch ? typeMatch[1] : 'other';
+    const type = typeMatch ? typeMatch[1] : "other";
     
     if (!byTypeMap[type]) {
       byTypeMap[type] = { count: 0, size: 0 };
@@ -170,11 +208,13 @@ export function getCacheStats(): CacheStats {
     }
   }
   
-  const byType = Object.entries(byTypeMap).map(([type, data]) => ({
-    type,
-    count: data.count,
-    size: data.size,
-  })).sort((a, b) => b.size - a.size);
+  const byType = Object.entries(byTypeMap)
+    .map(([type, data]) => ({
+      type,
+      count: data.count,
+      size: data.size,
+    }))
+    .sort((a, b) => b.size - a.size);
   
   // Image cache stats
   const imageStats = db.query(`
@@ -190,35 +230,6 @@ export function getCacheStats(): CacheStats {
     imageCount: imageStats.count,
     imageSize: imageStats.size,
   };
-}
-
-// Clear cache by type
-export function clearCacheByType(type: string): number {
-  const result = db.run(`DELETE FROM cache WHERE url LIKE ?`, [`${type}:%`]);
-  return result.changes;
-}
-
-// Clear all image cache
-export function clearImageCache(): number {
-  const result = db.run("DELETE FROM image_cache");
-  return result.changes;
-}
-
-// Get cookies formatted for Playwright
-export function getCookiesForPlaywright(): { name: string; value: string; domain: string; path: string }[] {
-  const cookies = getCookies();
-  return cookies.map(c => ({
-    name: c.name,
-    value: c.value,
-    domain: ".royalroad.com",
-    path: "/"
-  }));
-}
-
-// Check if session cookies are configured
-export function hasSessionCookies(): boolean {
-  const identity = getCookie(".AspNetCore.Identity.Application");
-  return !!identity;
 }
 
 export default db;

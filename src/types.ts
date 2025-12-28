@@ -82,3 +82,14 @@ export const TOPLISTS: ToplistType[] = [
   { slug: 'weekly-popular', name: 'Weekly Popular', url: 'https://www.royalroad.com/fictions/weekly-popular' },
   { slug: 'active-popular', name: 'Active Popular', url: 'https://www.royalroad.com/fictions/active-popular' },
 ];
+
+// Reader settings stored in cookie
+export interface ReaderSettings {
+  dark: boolean;  // dark mode enabled
+  font: number;   // font size in pixels
+}
+
+export const DEFAULT_READER_SETTINGS: ReaderSettings = {
+  dark: false,
+  font: 18
+};

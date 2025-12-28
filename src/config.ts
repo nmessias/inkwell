@@ -1,0 +1,63 @@
+/**
+ * Application configuration
+ * Environment variables take precedence over defaults
+ */
+
+// Server configuration
+export const PORT = parseInt(process.env.PORT || "3000", 10);
+
+// Cache TTLs (in seconds)
+export const CACHE_TTL = {
+  DEFAULT: 5 * 60,               // 5 minutes (generic cache)
+  FOLLOWS: 20 * 60,              // 20 minutes
+  TOPLIST: 6 * 60 * 60,          // 6 hours
+  FICTION: 60 * 60,              // 1 hour
+  CHAPTER: 30 * 24 * 60 * 60,    // 30 days
+  IMAGE: 30 * 24 * 60 * 60,      // 30 days
+} as const;
+
+// Pagination
+export const ITEMS_PER_PAGE = 10;
+export const CHAPTERS_PER_PAGE = 20;
+
+// Database
+export const DB_PATH = "./data/sessions.db";
+
+// Royal Road
+export const ROYAL_ROAD_BASE_URL = "https://www.royalroad.com";
+
+// Toplists configuration
+export interface ToplistType {
+  slug: string;
+  name: string;
+  url: string;
+}
+
+export const TOPLISTS: ToplistType[] = [
+  { slug: 'rising-stars', name: 'Rising Stars', url: `${ROYAL_ROAD_BASE_URL}/fictions/rising-stars` },
+  { slug: 'best-rated', name: 'Best Rated', url: `${ROYAL_ROAD_BASE_URL}/fictions/best-rated` },
+  { slug: 'weekly-popular', name: 'Weekly Popular', url: `${ROYAL_ROAD_BASE_URL}/fictions/weekly-popular` },
+  { slug: 'active-popular', name: 'Active Popular', url: `${ROYAL_ROAD_BASE_URL}/fictions/active-popular` },
+];
+
+// Reader settings
+export interface ReaderSettings {
+  dark: boolean;
+  font: number;
+}
+
+export const DEFAULT_READER_SETTINGS: ReaderSettings = {
+  dark: false,
+  font: 18,
+};
+
+// Navigation links
+export const NAV_LINKS = [
+  { href: "/", label: "Home" },
+  { href: "/follows", label: "Follows" },
+  { href: "/history", label: "History" },
+  { href: "/toplists", label: "Top Lists" },
+  { href: "/search", label: "Search" },
+  { href: "/cache", label: "Cache" },
+  { href: "/setup", label: "Setup" },
+] as const;

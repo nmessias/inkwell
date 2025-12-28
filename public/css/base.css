@@ -1,0 +1,279 @@
+/**
+ * Base styles for E-ink optimized pages
+ * High contrast, no animations, simple layout
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 12px;
+  background: #fff;
+  color: #000;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+a {
+  color: #000;
+  text-decoration: underline;
+}
+
+a:visited {
+  color: #333;
+}
+
+h1 {
+  font-size: 24px;
+  margin: 0 0 16px 0;
+}
+
+h2 {
+  font-size: 20px;
+  margin: 16px 0 12px 0;
+}
+
+/* Buttons */
+.btn {
+  display: inline-block;
+  padding: 14px 20px;
+  background: #000;
+  color: #fff;
+  border: 2px solid #000;
+  font-size: 16px;
+  text-decoration: none;
+  margin: 4px;
+  cursor: pointer;
+}
+
+.btn:visited {
+  color: #fff;
+}
+
+.btn-outline {
+  background: #fff;
+  color: #000;
+}
+
+.btn-outline:visited {
+  color: #000;
+}
+
+/* Navigation */
+.nav {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #000;
+}
+
+/* Lists */
+ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+li {
+  padding: 12px 0;
+  border-bottom: 1px solid #000;
+}
+
+li:last-child {
+  border-bottom: none;
+}
+
+/* Fiction items */
+.fiction-item {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #000;
+}
+
+.fiction-title {
+  font-weight: bold;
+  font-size: 18px;
+}
+
+.fiction-meta {
+  font-size: 14px;
+  color: #333;
+  margin-top: 4px;
+}
+
+.fiction-desc,
+.fiction-description {
+  background: #f5f5f5;
+}
+
+.chapter-list li {
+  padding: 10px 0;
+}
+
+/* Alerts */
+.error {
+  background: #000;
+  color: #fff;
+  padding: 16px;
+  margin: 16px 0;
+}
+
+.success {
+  border: 2px solid #000;
+  padding: 16px;
+  margin: 16px 0;
+}
+
+/* Forms */
+form label {
+  display: block;
+  margin: 12px 0 4px 0;
+  font-weight: bold;
+}
+
+form input[type="text"],
+form textarea {
+  width: 100%;
+  padding: 12px;
+  font-size: 16px;
+  border: 2px solid #000;
+  font-family: monospace;
+}
+
+form textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+  padding-top: 16px;
+  border-top: 1px solid #000;
+}
+
+.pagination .page-info {
+  font-size: 14px;
+  min-width: 60px;
+  text-align: center;
+}
+
+/* Dark mode toggle button */
+.dark-toggle {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  padding: 8px 12px;
+  font-size: 14px;
+  background: #000;
+  color: #fff;
+  border: 2px solid #000;
+  cursor: pointer;
+  z-index: 100;
+}
+
+/* Description toggle button */
+.desc-toggle {
+  margin-left: 8px;
+  padding: 2px 6px;
+  font-size: 12px;
+  background: #fff;
+  border: 1px solid #000;
+  cursor: pointer;
+}
+
+/* ==================== */
+/* Dark Mode            */
+/* ==================== */
+
+body.dark-mode {
+  background: #000;
+  color: #fff;
+}
+
+body.dark-mode a {
+  color: #fff;
+}
+
+body.dark-mode a:visited {
+  color: #ccc;
+}
+
+body.dark-mode .btn {
+  background: #fff;
+  color: #000;
+  border-color: #fff;
+}
+
+body.dark-mode .btn:visited {
+  color: #000;
+}
+
+body.dark-mode .btn-outline {
+  background: #000;
+  color: #fff;
+  border-color: #fff;
+}
+
+body.dark-mode .btn-outline:visited {
+  color: #fff;
+}
+
+body.dark-mode .error {
+  background: #fff;
+  color: #000;
+}
+
+body.dark-mode .success {
+  border-color: #fff;
+}
+
+body.dark-mode li {
+  border-color: #fff;
+}
+
+body.dark-mode .nav {
+  border-color: #fff;
+}
+
+body.dark-mode .pagination {
+  border-color: #fff;
+}
+
+body.dark-mode form input,
+body.dark-mode form textarea {
+  background: #000;
+  color: #fff;
+  border-color: #fff;
+}
+
+body.dark-mode .fiction-meta {
+  color: #ccc;
+}
+
+body.dark-mode .fiction-desc,
+body.dark-mode .fiction-description {
+  background: #222;
+  border-color: #fff;
+}
+
+body.dark-mode .desc-toggle {
+  background: #000;
+  color: #fff;
+  border-color: #fff;
+}
+
+body.dark-mode .dark-toggle {
+  background: #fff;
+  color: #000;
+  border-color: #fff;
+}

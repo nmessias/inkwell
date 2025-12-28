@@ -2,7 +2,10 @@
 node_modules/
 
 # Database
-data/sessions.db
+data/
+
+# Environment
+.env
 
 # Lock files
 bun.lock
