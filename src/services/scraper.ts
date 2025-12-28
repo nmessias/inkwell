@@ -3,7 +3,7 @@
  */
 import { chromium, Browser, BrowserContext, Page } from "playwright";
 import { parseHTML } from "linkedom";
-import { getCookiesForPlaywright, getCache, setCache } from "./cache";
+import { getCookiesForPlaywright, getCache, setCache, deleteCache } from "./cache";
 import { ROYAL_ROAD_BASE_URL, CACHE_TTL } from "../config";
 import type { Fiction, FollowedFiction, Chapter, ChapterContent, ToplistType, HistoryEntry } from "../types";
 
@@ -914,6 +914,14 @@ export async function getChapter(chapterId: number, ttl?: number): Promise<Chapt
 
   // Cache the chapter
   setCache(cacheKey, JSON.stringify(result), CACHE_TTL.CHAPTER);
+
+  // Invalidate fiction cache when reading live (read status changed on RR)
+  if (!isPreCaching && fictionInfo.fictionId) {
+    const fictionCacheKey = `fiction:${fictionInfo.fictionId}`;
+    if (deleteCache(fictionCacheKey)) {
+      console.log(`Invalidated fiction cache: ${fictionCacheKey}`);
+    }
+  }
 
   // Pre-cache next chapter when reading live
   if (nextChapterId && !isPreCaching) {

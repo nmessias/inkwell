@@ -118,6 +118,11 @@ export function setCache(url: string, content: string, ttlSeconds: number = CACH
   );
 }
 
+export function deleteCache(key: string): boolean {
+  const result = db.run("DELETE FROM cache WHERE url = ?", [key]);
+  return result.changes > 0;
+}
+
 export function clearCache(): void {
   db.run("DELETE FROM cache");
 }
