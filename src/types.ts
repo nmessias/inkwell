@@ -47,6 +47,7 @@ export interface Chapter {
   url: string;
   date?: string;
   order?: number;
+  isRead?: boolean;  // true if chapter has been read
 }
 
 export interface ChapterContent {

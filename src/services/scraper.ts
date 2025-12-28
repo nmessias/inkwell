@@ -668,8 +668,12 @@ export async function getFiction(id: number, ttl: number = CACHE_TTL.FICTION): P
   }
 
   // Parse chapters from HTML if not from JS
+  let lastReadChapterIdx = -1;
+  
   if (chapters.length === 0) {
     const chapterRows = document.querySelectorAll("tr[data-url], .chapter-row");
+    let idx = 0;
+    
     for (const row of chapterRows) {
       const href = row.getAttribute("data-url") || row.querySelector("a")?.getAttribute("href") || "";
       const chapterMatch = href.match(/\/chapter\/(\d+)/);
@@ -678,12 +682,19 @@ export async function getFiction(id: number, ttl: number = CACHE_TTL.FICTION): P
       const chapterTitle = row.querySelector("a")?.textContent?.trim() || "";
       const dateEl = row.querySelector("time, .chapter-date");
       
+      // Check for reading progress indicator (marks last read chapter)
+      const hasReadingProgress = !!row.querySelector("i.fa-caret-right[data-original-title*='Reading Progress']");
+      if (hasReadingProgress) {
+        lastReadChapterIdx = idx;
+      }
+      
       chapters.push({
         id: parseInt(chapterMatch[1], 10),
         title: chapterTitle,
         url: `/chapter/${chapterMatch[1]}`,
         date: dateEl?.textContent?.trim(),
       });
+      idx++;
     }
   }
 
@@ -695,6 +706,23 @@ export async function getFiction(id: number, ttl: number = CACHE_TTL.FICTION): P
     const continueMatch = continueHref.match(/\/chapter\/(\d+)/);
     if (continueMatch) {
       continueChapterId = parseInt(continueMatch[1], 10);
+    }
+  }
+
+  // Mark chapters as read based on reading progress indicator
+  if (lastReadChapterIdx >= 0) {
+    // Reading progress icon found - mark all chapters up to and including it as read
+    for (let i = 0; i <= lastReadChapterIdx; i++) {
+      chapters[i].isRead = true;
+    }
+  } else if (continueChapterId) {
+    // Fallback: use continueChapterId as boundary
+    // Chapters before continueChapterId are considered read
+    const continueIdx = chapters.findIndex(c => c.id === continueChapterId);
+    if (continueIdx > 0) {
+      for (let i = 0; i < continueIdx; i++) {
+        chapters[i].isRead = true;
+      }
     }
   }
 

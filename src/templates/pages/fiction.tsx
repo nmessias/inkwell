@@ -188,19 +188,39 @@ export function FictionPage({
       <h2>Chapters ({chapters.length})</h2>
       <ul class="chapter-list">
         {paginatedChapters.length > 0 ? (
-          paginatedChapters.map((c, i) => (
-            <li>
-              <a href={`/chapter/${c.id}`} safe>
-                {c.title || `Chapter ${startIdx + i + 1}`}
-              </a>
-              {c.date && (
-                <span class="fiction-meta">
-                  {" "}
-                  • <span safe>{c.date}</span>
-                </span>
-              )}
-            </li>
-          ))
+          paginatedChapters.map((c, i) => {
+            const isRead = c.isRead === true;
+            const isNextToRead = c.id === fiction.continueChapterId;
+
+            let prefix = "";
+            let liStyle = "";
+            let linkStyle = "";
+            let metaStyle = "";
+
+            if (isRead) {
+              prefix = "✓ ";
+              liStyle = "color: #888;";
+              linkStyle = "color: #888;";
+              metaStyle = "color: #aaa;";
+            } else if (isNextToRead) {
+              prefix = "→ ";
+              liStyle = "font-weight: bold;";
+            }
+
+            return (
+              <li style={liStyle || undefined}>
+                {prefix}
+                <a href={`/chapter/${c.id}`} style={linkStyle || undefined} safe>
+                  {c.title || `Chapter ${startIdx + i + 1}`}
+                </a>
+                {c.date && (
+                  <span class="fiction-meta" style={metaStyle || undefined}>
+                    {" "}• <span safe>{c.date}</span>
+                  </span>
+                )}
+              </li>
+            );
+          })
         ) : (
           <li>No chapters found</li>
         )}
