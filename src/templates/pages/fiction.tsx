@@ -7,6 +7,22 @@ import type { ReaderSettings } from "../../config";
 import { DEFAULT_READER_SETTINGS, CHAPTERS_PER_PAGE } from "../../config";
 import type { Fiction } from "../../types";
 
+/**
+ * Format a number with commas (e.g., 1234567 -> "1,234,567")
+ */
+function formatNumber(num: number | undefined): string {
+  if (num === undefined) return "—";
+  return num.toLocaleString();
+}
+
+/**
+ * Format a rating as stars (e.g., 4.5 -> "4.5★")
+ */
+function formatRating(rating: number | undefined): string {
+  if (rating === undefined) return "—";
+  return `${rating.toFixed(2)}★`;
+}
+
 export function FictionPage({
   fiction,
   chapterPage = 1,
@@ -22,13 +38,13 @@ export function FictionPage({
   const paginatedChapters = chapters.slice(startIdx, startIdx + CHAPTERS_PER_PAGE);
 
   const stats = fiction.stats;
-  const statsLine = [
-    stats?.rating ? `${stats.rating.toFixed(1)}★` : null,
-    stats?.pages ? `${stats.pages} pages` : null,
-    stats?.followers ? `${stats.followers.toLocaleString()} followers` : null,
-  ]
-    .filter(Boolean)
-    .join(" • ");
+  const hasRatings = stats?.rating !== undefined;
+  const hasDetailedStats = stats && (
+    stats.views !== undefined || 
+    stats.followers !== undefined || 
+    stats.favorites !== undefined ||
+    stats.pages !== undefined
+  );
 
   const hasLongDesc = fiction.description && fiction.description.length > 300;
 
@@ -51,10 +67,68 @@ export function FictionPage({
           </h1>
           <div class="fiction-meta">
             by <span safe>{fiction.author || "Unknown"}</span>
-            {statsLine && ` • ${statsLine}`}
           </div>
         </div>
       </div>
+
+      {/* Stats Section */}
+      {(hasRatings || hasDetailedStats) && (
+        <div class="fiction-stats" style="margin: 16px 0; padding: 12px; border: 1px solid #ccc; background: #fafafa;">
+          <strong style="display: block; margin-bottom: 8px;">Statistics</strong>
+          
+          <div style="display: flex; flex-wrap: wrap; gap: 16px;">
+            {/* Ratings Column */}
+            {hasRatings && (
+              <div style="flex: 1; min-width: 140px;">
+                <div style="margin-bottom: 4px;">
+                  <strong>Overall:</strong> {formatRating(stats?.rating)}
+                </div>
+                {stats?.styleScore !== undefined && (
+                  <div style="font-size: 14px; color: #666;">
+                    Style: {formatRating(stats.styleScore)}
+                  </div>
+                )}
+                {stats?.storyScore !== undefined && (
+                  <div style="font-size: 14px; color: #666;">
+                    Story: {formatRating(stats.storyScore)}
+                  </div>
+                )}
+                {stats?.grammarScore !== undefined && (
+                  <div style="font-size: 14px; color: #666;">
+                    Grammar: {formatRating(stats.grammarScore)}
+                  </div>
+                )}
+                {stats?.characterScore !== undefined && (
+                  <div style="font-size: 14px; color: #666;">
+                    Character: {formatRating(stats.characterScore)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Stats Column */}
+            {hasDetailedStats && (
+              <div style="flex: 1; min-width: 140px; font-size: 14px;">
+                {stats?.pages !== undefined && (
+                  <div><strong>{formatNumber(stats.pages)}</strong> pages</div>
+                )}
+                {stats?.views !== undefined && (
+                  <div><strong>{formatNumber(stats.views)}</strong> views</div>
+                )}
+                {stats?.followers !== undefined && (
+                  <div><strong>{formatNumber(stats.followers)}</strong> followers</div>
+                )}
+                {stats?.favorites !== undefined && (
+                  <div><strong>{formatNumber(stats.favorites)}</strong> favorites</div>
+                )}
+                {stats?.ratings !== undefined && (
+                  <div><strong>{formatNumber(stats.ratings)}</strong> ratings</div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {fiction.description && (
         <div

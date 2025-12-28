@@ -578,8 +578,94 @@ export async function getFiction(id: number, ttl: number = CACHE_TTL.FICTION): P
   }
   
   // Stats
-  const ratingEl = document.querySelector(".star, [data-content*='rating']");
-  const rating = ratingEl ? parseFloat(ratingEl.getAttribute("data-content") || ratingEl.textContent || "0") : undefined;
+  const statsContainer = document.querySelector(".fiction-stats");
+  let rating: number | undefined;
+  let styleScore: number | undefined;
+  let storyScore: number | undefined;
+  let grammarScore: number | undefined;
+  let characterScore: number | undefined;
+  let views: number | undefined;
+  let averageViews: number | undefined;
+  let followers: number | undefined;
+  let favorites: number | undefined;
+  let ratings: number | undefined;
+  let pages: number | undefined;
+
+  if (statsContainer) {
+    // Parse star ratings from data-content attribute (e.g., "4.66 / 5")
+    const parseRating = (el: Element | null): number | undefined => {
+      if (!el) return undefined;
+      const content = el.getAttribute("data-content") || el.getAttribute("aria-label") || "";
+      const match = content.match(/([\d.]+)/);
+      return match ? parseFloat(match[1]) : undefined;
+    };
+
+    // Find ratings by their labels
+    const listItems = statsContainer.querySelectorAll("li.list-item, li");
+    let currentLabel = "";
+    
+    for (const li of listItems) {
+      const text = li.textContent?.trim() || "";
+      const starEl = li.querySelector(".star, [data-content]");
+      
+      if (text.includes("Overall Score")) {
+        currentLabel = "overall";
+      } else if (text.includes("Style Score")) {
+        currentLabel = "style";
+      } else if (text.includes("Story Score")) {
+        currentLabel = "story";
+      } else if (text.includes("Grammar Score")) {
+        currentLabel = "grammar";
+      } else if (text.includes("Character Score")) {
+        currentLabel = "character";
+      } else if (starEl) {
+        const score = parseRating(starEl);
+        if (currentLabel === "overall") rating = score;
+        else if (currentLabel === "style") styleScore = score;
+        else if (currentLabel === "story") storyScore = score;
+        else if (currentLabel === "grammar") grammarScore = score;
+        else if (currentLabel === "character") characterScore = score;
+        currentLabel = "";
+      }
+    }
+
+    // Parse numeric stats from the right column
+    const statsListItems = statsContainer.querySelectorAll(".col-sm-6:last-child li, .stats-content li");
+    let nextStatType = "";
+    
+    for (const li of statsListItems) {
+      const text = li.textContent?.trim().toUpperCase() || "";
+      
+      if (text.includes("TOTAL VIEWS")) {
+        nextStatType = "views";
+      } else if (text.includes("AVERAGE VIEWS")) {
+        nextStatType = "avgViews";
+      } else if (text.includes("FOLLOWERS")) {
+        nextStatType = "followers";
+      } else if (text.includes("FAVORITES")) {
+        nextStatType = "favorites";
+      } else if (text.includes("RATINGS")) {
+        nextStatType = "ratings";
+      } else if (text.includes("PAGES")) {
+        nextStatType = "pages";
+      } else if (nextStatType && li.classList.contains("font-red-sunglo")) {
+        const num = parseInt(text.replace(/,/g, ""), 10);
+        if (!isNaN(num)) {
+          if (nextStatType === "views") views = num;
+          else if (nextStatType === "avgViews") averageViews = num;
+          else if (nextStatType === "followers") followers = num;
+          else if (nextStatType === "favorites") favorites = num;
+          else if (nextStatType === "ratings") ratings = num;
+          else if (nextStatType === "pages") pages = num;
+        }
+        nextStatType = "";
+      }
+    }
+  } else {
+    // Fallback: try to get at least the overall rating
+    const ratingEl = document.querySelector(".star[data-content], [data-original-title*='Score']");
+    rating = ratingEl ? parseFloat(ratingEl.getAttribute("data-content") || "0") : undefined;
+  }
 
   // Parse chapters from HTML if not from JS
   if (chapters.length === 0) {
@@ -619,7 +705,19 @@ export async function getFiction(id: number, ttl: number = CACHE_TTL.FICTION): P
     url,
     coverUrl,
     description: descEl?.textContent?.trim(),
-    stats: { rating },
+    stats: {
+      rating,
+      styleScore,
+      storyScore,
+      grammarScore,
+      characterScore,
+      views,
+      averageViews,
+      followers,
+      favorites,
+      ratings,
+      pages,
+    },
     chapters,
     continueChapterId,
   };

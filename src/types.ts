@@ -26,11 +26,19 @@ export interface Fiction {
 }
 
 export interface FictionStats {
+  // Ratings (out of 5)
+  rating?: number;        // Overall score
+  styleScore?: number;
+  storyScore?: number;
+  grammarScore?: number;
+  characterScore?: number;
+  // Counts
   pages?: number;
   followers?: number;
   favorites?: number;
   views?: number;
-  rating?: number;
+  averageViews?: number;
+  ratings?: number;       // Number of ratings
 }
 
 export interface Chapter {
