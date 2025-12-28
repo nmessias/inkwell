@@ -39,11 +39,14 @@ COPY . .
 # Create data directory for SQLite persistence
 RUN mkdir -p /app/data
 
+# Make startup script executable
+RUN chmod +x /app/scripts/start.sh
+
 # Expose port
 EXPOSE 3000
 
 # Set environment
 ENV NODE_ENV=production
 
-# Start the server
-CMD ["bun", "run", "src/index.ts"]
+# Start with startup script (runs migrations, then starts server)
+CMD ["/app/scripts/start.sh"]
