@@ -1,27 +1,41 @@
-# E-ink Royal
+# Inkwell
 
-A Royal Road proxy optimized for Kindle e-ink browsers. This server scrapes Royal Road and presents the content in a simplified, e-ink-friendly format with no JavaScript requirements for basic navigation.
+Read web fiction on your e-ink device.
+
+Inkwell is a web fiction proxy that scrapes content from various sources and presents it in a simplified, e-ink-friendly format optimized for devices like Kindle and Kobo.
+
+## Supported Sources
+
+- **Royal Road** - Western web fiction platform
+- *Patreon* - Coming soon
+- *Chinese/Korean novel sites* - Planned
+
+## Supported Devices
+
+- Kindle (all models with Experimental Browser)
+- Kobo (via built-in browser)
+- Other e-ink devices with web browsers
 
 ## Features
 
 - **E-ink Optimized** - High contrast, large touch targets, no animations
 - **Offline-First** - Aggressive caching for low-bandwidth situations
-- **Reader Mode** - Paginated chapter view with tap/click navigation
-- **Dark Mode** - Toggle between light and dark themes
-- **Session Sync** - Uses your Royal Road cookies to sync reading progress
-- **Background Caching** - Pre-caches your follows and toplists
+- **Reader Mode** - Paginated chapter view with tap navigation
+- **Session Sync** - Uses your source cookies to sync reading progress
+- **Background Caching** - Pre-caches your follows and reading lists
+- **Basic Auth** - Protect your instance with username/password
 
 ## Requirements
 
 - [Bun](https://bun.sh) runtime (v1.0+)
-- Chromium-based browser (installed automatically by Playwright)
+- Chromium (installed automatically by Playwright)
 
 ## Installation
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/kindle-royal-proxy.git
-cd kindle-royal-proxy
+git clone https://github.com/nmessias/inkwell.git
+cd inkwell
 
 # Install dependencies
 bun install
@@ -32,10 +46,15 @@ bunx playwright install chromium
 
 ## Configuration
 
-Create a `.env` file (optional):
+Create a `.env` file:
 
 ```bash
-PORT=3000  # Server port (default: 3000)
+# Server port (default: 3000)
+PORT=3000
+
+# Basic Auth (required for production)
+AUTH_USERNAME=your-username
+AUTH_PASSWORD=your-password
 ```
 
 ## Usage
@@ -48,73 +67,72 @@ bun run start
 bun run dev
 ```
 
-Then access the proxy from your Kindle browser at:
+Access Inkwell from your e-ink device's browser:
 ```
 http://<your-server-ip>:3000
 ```
 
 ## Setup
 
-1. Navigate to `/setup` on the proxy
-2. Copy your Royal Road session cookies from your browser:
-   - `.AspNetCore.Identity.Application` (required)
-   - `cf_clearance` (optional, for Cloudflare)
+1. Navigate to `/setup` on Inkwell
+2. Copy your session cookies from your browser:
+   - For Royal Road: `.AspNetCore.Identity.Application`
+   - Optional: `cf_clearance` (for Cloudflare)
 3. Paste them into the setup form
 4. Click "Save Cookies"
 
-Your reading progress will now sync with Royal Road.
+Your reading progress will now sync with the source.
+
+## Deployment
+
+Inkwell includes Docker support for easy deployment to Railway, Fly.io, or any Docker host.
+
+### Railway
+
+1. Push to GitHub
+2. Create new project on [Railway](https://railway.app)
+3. Connect your repo
+4. Add environment variables: `AUTH_USERNAME`, `AUTH_PASSWORD`
+5. Add a volume mounted at `/app/data`
+6. Deploy
+
+See `railway.toml` for configuration.
 
 ## Project Structure
 
 ```
-kindle-royal-proxy/
+inkwell/
 ├── public/              # Static assets (CSS, JS, fonts)
 │   ├── css/
 │   ├── fonts/
 │   └── js/
 ├── src/
-│   ├── config.ts        # Configuration constants
+│   ├── config.ts        # Configuration
 │   ├── index.ts         # Entry point
 │   ├── server.ts        # HTTP utilities
 │   ├── types.ts         # TypeScript types
 │   ├── routes/          # Route handlers
-│   │   ├── api.ts       # JSON API routes
-│   │   ├── index.ts     # Router
-│   │   └── pages.ts     # HTML page routes
 │   ├── services/        # Business logic
 │   │   ├── cache.ts     # SQLite cache
 │   │   ├── jobs.ts      # Background jobs
 │   │   └── scraper.ts   # Playwright scraper
 │   └── templates/       # HTML templates
-│       ├── components.ts
-│       ├── layout.ts
-│       └── pages/
 ├── data/                # SQLite database (created on first run)
-└── package.json
+├── Dockerfile           # Docker build
+└── railway.toml         # Railway config
 ```
 
-## How It Works
+## E-ink Tips
 
-1. **Scraping** - Uses Playwright with stealth settings to scrape Royal Road
-2. **Caching** - Stores content in SQLite with configurable TTLs
-3. **Templates** - Server-side rendered HTML optimized for e-ink
-4. **Reader** - Paginated chapter view with CSS columns and tap zones
-
-## Kindle Tips
-
-- Use the **tap zones** (top/bottom 15%) to toggle the UI
+- Use **tap zones** (top/bottom 15%) to toggle the UI
 - Use **left/right zones** (40% each side) to navigate pages
-- The proxy uses **ES5 JavaScript** for maximum Kindle compatibility
-- Consider setting the Kindle browser to **desktop mode** for better rendering
+- Uses **ES5 JavaScript** for maximum device compatibility
+- Consider **desktop mode** in your device's browser for better rendering
 
 ## License
 
-MIT License - See [LICENSE](LICENSE) file for details.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+MIT License - See [LICENSE](LICENSE) for details.
 
 ## Disclaimer
 
-This project is not affiliated with Royal Road. Use responsibly and in accordance with Royal Road's Terms of Service.
+This project is not affiliated with Royal Road, Patreon, or any other content platform. Use responsibly and in accordance with each platform's Terms of Service.

@@ -14,8 +14,8 @@ export function HomePage({
   return (
     <Layout title="Home" settings={settings}>
       <Nav currentPath="/" />
-      <h1>E-ink Royal</h1>
-      <p>Royal Road proxy optimized for Kindle e-ink browsers.</p>
+      <h1>Inkwell</h1>
+      <p>Read web fiction on your e-ink device.</p>
       <ul>
         <li>
           <a href="/follows">My Follows</a> - View your followed fictions

@@ -1,4 +1,4 @@
-// TypeScript interfaces for the E-ink-Road Proxy
+// TypeScript interfaces for Inkwell
 
 export interface Cookie {
   id?: number;

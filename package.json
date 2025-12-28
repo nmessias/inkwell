@@ -1,20 +1,21 @@
 {
-  "name": "kindle-royal-proxy",
+  "name": "inkwell",
   "version": "1.0.0",
-  "description": "Royal Road proxy optimized for Kindle e-ink browser",
+  "description": "Web fiction proxy optimized for e-ink devices",
   "author": "nmessias",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nmessias/kindle-royal-proxy"
+    "url": "https://github.com/nmessias/inkwell"
   },
   "keywords": [
-    "kindle",
-    "royal-road",
-    "proxy",
     "e-ink",
+    "kindle",
+    "kobo",
+    "royal-road",
     "web-fiction",
-    "reader"
+    "reader",
+    "proxy"
   ],
   "type": "module",
   "scripts": {

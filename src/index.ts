@@ -1,5 +1,5 @@
 /**
- * E-ink Royal - Royal Road Proxy for Kindle
+ * Inkwell - Web Fiction Proxy for E-ink Devices
  * Main entry point
  */
 import { PORT } from "./config";
@@ -8,7 +8,7 @@ import { initBrowser, closeBrowser } from "./services/scraper";
 import { startJobs, stopJobs } from "./services/jobs";
 
 // Initialize browser on startup
-console.log("Starting E-ink Royal Proxy...");
+console.log("Starting Inkwell...");
 initBrowser()
   .then(() => {
     // Start background cache jobs after browser is ready
@@ -22,7 +22,7 @@ const server = Bun.serve({
   fetch: handleRequest,
 });
 
-console.log(`E-ink Royal Proxy running at http://localhost:${server.port}`);
+console.log(`Inkwell running at http://localhost:${server.port}`);
 console.log("Press Ctrl+C to stop");
 
 // Handle graceful shutdown
