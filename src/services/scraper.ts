@@ -157,6 +157,36 @@ async function getPage(
 }
 
 /**
+ * Resolve a redirect URL to get the final URL (used for /chapter/next/ URLs)
+ * Returns the final URL after redirects, or null if failed
+ */
+async function resolveRedirectUrl(url: string): Promise<string | null> {
+  if (!context) {
+    await initBrowser();
+  }
+
+  const page = await context!.newPage();
+  
+  try {
+    // Navigate and wait for the redirect to complete
+    await page.goto(url, { 
+      waitUntil: "domcontentloaded",
+      timeout: 15000 
+    });
+    
+    // Get the final URL after redirects
+    const finalUrl = page.url();
+    await page.close();
+    
+    return finalUrl;
+  } catch (error) {
+    console.error(`Failed to resolve redirect for ${url}:`, error);
+    await page.close();
+    return null;
+  }
+}
+
+/**
  * Cleanup browser resources
  */
 export async function closeBrowser(): Promise<void> {
@@ -332,12 +362,19 @@ export async function getFollows(ttl: number = CACHE_TTL.FOLLOWS): Promise<Follo
       }
       
       // Read button (next unread chapter)
+      // Royal Road uses /chapter/next/{fictionId} which redirects to actual chapter
+      let nextChapterUrl: string | undefined;
       const readButton = row.querySelector("a.btn[href*='/chapter/']");
       if (readButton) {
         const readHref = readButton.getAttribute("href") || "";
-        const readMatch = readHref.match(/\/chapter\/(\d+)/);
-        if (readMatch) {
-          nextChapterId = parseInt(readMatch[1], 10);
+        // Try direct chapter ID first (e.g., /chapter/123456)
+        const directMatch = readHref.match(/\/chapter\/(\d+)$/);
+        if (directMatch) {
+          nextChapterId = parseInt(directMatch[1], 10);
+          nextChapterTitle = readButton.textContent?.trim() || undefined;
+        } else if (readHref.includes("/chapter/next/")) {
+          // Store the redirect URL to resolve later
+          nextChapterUrl = readHref.startsWith("http") ? readHref : `${ROYAL_ROAD_BASE_URL}${readHref}`;
           nextChapterTitle = readButton.textContent?.trim() || undefined;
         }
       }
@@ -355,9 +392,40 @@ export async function getFollows(ttl: number = CACHE_TTL.FOLLOWS): Promise<Follo
         lastReadChapterId,
         nextChapterId,
         nextChapterTitle,
-      });
+        _nextChapterUrl: nextChapterUrl, // Temporary field for redirect resolution
+      } as FollowedFiction & { _nextChapterUrl?: string });
     } catch (e) {
       console.error("Error parsing follow item:", e);
+    }
+  }
+
+  // Resolve /chapter/next/ redirect URLs to get actual chapter IDs
+  const fictionsNeedingResolution = fictions.filter(
+    (f) => (f as FollowedFiction & { _nextChapterUrl?: string })._nextChapterUrl && !f.nextChapterId
+  );
+  
+  if (fictionsNeedingResolution.length > 0) {
+    console.log(`Resolving ${fictionsNeedingResolution.length} next chapter redirect URLs...`);
+    
+    for (const fiction of fictionsNeedingResolution) {
+      const f = fiction as FollowedFiction & { _nextChapterUrl?: string };
+      if (!f._nextChapterUrl) continue;
+      
+      try {
+        const finalUrl = await resolveRedirectUrl(f._nextChapterUrl);
+        if (finalUrl) {
+          const chapterIdMatch = finalUrl.match(/\/chapter\/(\d+)/);
+          if (chapterIdMatch) {
+            f.nextChapterId = parseInt(chapterIdMatch[1], 10);
+            console.log(`Resolved next chapter for "${f.title}": ${f.nextChapterId}`);
+          }
+        }
+      } catch (e) {
+        console.error(`Failed to resolve next chapter URL for "${fiction.title}":`, e);
+      }
+      
+      // Clean up temporary field
+      delete f._nextChapterUrl;
     }
   }
 
