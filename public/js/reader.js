@@ -294,18 +294,8 @@
     }, 100);
   }
 
-  function navigateToChapter(id, goToLastPage, buttonEl) {
+  function navigateToChapter(id, goToLastPage) {
     var chapter = S.cache[id];
-    
-    // Show loading state on button
-    if (buttonEl) {
-      buttonEl.className = buttonEl.className + ' loading';
-    }
-    
-    // Show centered loading spinner (for page flip navigation)
-    if (!buttonEl && S.els.loadingSpinner) {
-      S.els.loadingSpinner.className = 'loading-spinner visible';
-    }
     
     if (!chapter) {
       // Not cached, do full page load
@@ -320,16 +310,6 @@
     
     // Render chapter
     renderChapter(chapter, goToLastPage);
-    
-    // Remove loading state
-    if (buttonEl) {
-      buttonEl.className = buttonEl.className.replace(' loading', '');
-    }
-    
-    // Hide loading spinner
-    if (S.els.loadingSpinner) {
-      S.els.loadingSpinner.className = 'loading-spinner';
-    }
     
     // Update URL with pushState
     if (window.history && window.history.pushState) {
@@ -373,7 +353,6 @@
     els.titleEl = document.querySelector('.chapter-title');
     els.navPrev = document.querySelector('.nav-prev');
     els.navNext = document.querySelector('.nav-next');
-    els.loadingSpinner = document.querySelector('.loading-spinner');
     els.modal = document.querySelector('.settings-modal');
     
     // Cache base class names for fast toggling
@@ -423,17 +402,13 @@
     if (S.els.footer) {
       S.els.footer.onclick = function(e) {
         var target = e.target;
-        // Find the button element (might have clicked on inner span)
-        while (target && target.tagName !== 'BUTTON' && target !== S.els.footer) {
-          target = target.parentElement;
-        }
-        if (!target || target.tagName !== 'BUTTON') return;
+        if (target.tagName !== 'BUTTON') return;
         
         var id = target.getAttribute('data-chapter-id');
         if (!id) return;
         
         var goToLast = target.className.indexOf('nav-prev') !== -1;
-        navigateToChapter(id, goToLast, target);
+        navigateToChapter(id, goToLast);
       };
     }
     

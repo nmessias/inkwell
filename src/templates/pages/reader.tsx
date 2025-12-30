@@ -67,8 +67,6 @@ export function ReaderPage({
         </div>
       </div>
 
-      <div class="loading-spinner">Loading</div>
-
       <div class="page-indicator">1 / 1</div>
 
       <nav class="nav-fixed">
@@ -77,8 +75,7 @@ export function ReaderPage({
           data-chapter-id={prevChapterId || ''}
           disabled={!prevChapterId}
         >
-          <span class="btn-text">← Prev Ch</span>
-          <span class="spinner">Loading...</span>
+          ← Prev Ch
         </button>
         <a href={`/fiction/${chapter.fictionId}`} class="btn btn-outline">
           Index
@@ -88,8 +85,7 @@ export function ReaderPage({
           data-chapter-id={nextChapterId || ''}
           disabled={!nextChapterId}
         >
-          <span class="btn-text">Next Ch →</span>
-          <span class="spinner">Loading...</span>
+          Next Ch →
         </button>
       </nav>
 
