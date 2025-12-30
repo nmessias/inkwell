@@ -61,12 +61,13 @@ export function ReaderPage({
         <div class="tap-zone-bottom"></div>
         <div class="click-zone click-zone-left"></div>
         <div class="click-zone click-zone-right"></div>
-        <div class="loading-spinner">Loading</div>
         <div class="reader-content" style={fontSizeStyle}>
           {/* Content is already HTML, render as-is */}
           {chapter.content as "safe"}
         </div>
       </div>
+
+      <div class="loading-spinner">Loading</div>
 
       <div class="page-indicator">1 / 1</div>
 
