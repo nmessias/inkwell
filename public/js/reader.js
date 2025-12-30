@@ -189,7 +189,7 @@
       // At last page, go to next chapter if available
       var nextId = S.els.navNext && S.els.navNext.getAttribute('data-chapter-id');
       if (nextId) {
-        navigateToChapter(nextId, false, null, 'right');
+        navigateToChapter(nextId, false);
       } else {
         setUI(true);
       }
@@ -203,7 +203,7 @@
       // At first page, go to prev chapter (last page) if available
       var prevId = S.els.navPrev && S.els.navPrev.getAttribute('data-chapter-id');
       if (prevId) {
-        navigateToChapter(prevId, true, null, 'left');
+        navigateToChapter(prevId, true);
       } else {
         setUI(true);
       }
@@ -294,22 +294,17 @@
     }, 100);
   }
 
-  function navigateToChapter(id, goToLastPage, buttonEl, side) {
+  function navigateToChapter(id, goToLastPage, buttonEl) {
     var chapter = S.cache[id];
-    var sideSpinner = null;
     
     // Show loading state on button
     if (buttonEl) {
       buttonEl.className = buttonEl.className + ' loading';
     }
     
-    // Show side spinner for page flip navigation
-    if (side === 'left' && S.els.sideSpinnerLeft) {
-      sideSpinner = S.els.sideSpinnerLeft;
-      sideSpinner.className = sideSpinner.className + ' visible';
-    } else if (side === 'right' && S.els.sideSpinnerRight) {
-      sideSpinner = S.els.sideSpinnerRight;
-      sideSpinner.className = sideSpinner.className + ' visible';
+    // Show centered loading spinner (for page flip navigation)
+    if (!buttonEl && S.els.loadingSpinner) {
+      S.els.loadingSpinner.className = 'loading-spinner visible';
     }
     
     if (!chapter) {
@@ -331,9 +326,9 @@
       buttonEl.className = buttonEl.className.replace(' loading', '');
     }
     
-    // Hide side spinner
-    if (sideSpinner) {
-      sideSpinner.className = sideSpinner.className.replace(' visible', '');
+    // Hide loading spinner
+    if (S.els.loadingSpinner) {
+      S.els.loadingSpinner.className = 'loading-spinner';
     }
     
     // Update URL with pushState
@@ -378,8 +373,7 @@
     els.titleEl = document.querySelector('.chapter-title');
     els.navPrev = document.querySelector('.nav-prev');
     els.navNext = document.querySelector('.nav-next');
-    els.sideSpinnerLeft = document.querySelector('.side-spinner-left');
-    els.sideSpinnerRight = document.querySelector('.side-spinner-right');
+    els.loadingSpinner = document.querySelector('.loading-spinner');
     els.modal = document.querySelector('.settings-modal');
     
     // Cache base class names for fast toggling

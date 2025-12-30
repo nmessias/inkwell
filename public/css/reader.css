@@ -192,29 +192,34 @@ a:visited {
   z-index: 6;
 }
 
-/* Side loading spinners (for page flip navigation) */
-.side-spinner {
+/* Loading spinner (for chapter navigation) */
+.loading-spinner {
   display: none;
-  position: absolute;
+  position: fixed;
   top: 50%;
-  transform: translateY(-50%);
-  z-index: 20;
-  background: #000;
-  color: #fff;
-  padding: 8px 12px;
-  font-size: 14px;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 100;
+  background: #fff;
+  color: #000;
+  padding: 12px 20px;
+  font-size: 16px;
+  border: 2px solid #000;
 }
 
-.side-spinner-left {
-  left: 10px;
-}
-
-.side-spinner-right {
-  right: 10px;
-}
-
-.side-spinner.visible {
+.loading-spinner.visible {
   display: block;
+}
+
+.loading-spinner::after {
+  content: '.';
+  animation: ellipsis 1.5s infinite step-start;
+}
+
+@keyframes ellipsis {
+  0%   { content: '.'; }
+  33%  { content: '..'; }
+  66%  { content: '...'; }
 }
 
 /* Page indicator */
