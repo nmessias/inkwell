@@ -159,13 +159,15 @@ async function getPage(
 /**
  * Resolve a redirect URL to get the final URL (used for /chapter/next/ URLs)
  * Returns the final URL after redirects, or null if failed
+ * useAnon = true to avoid marking chapters as read (for cache warming)
  */
-async function resolveRedirectUrl(url: string): Promise<string | null> {
-  if (!context) {
+async function resolveRedirectUrl(url: string, useAnon: boolean = false): Promise<string | null> {
+  if (!context || !anonContext) {
     await initBrowser();
   }
 
-  const page = await context!.newPage();
+  const ctx = useAnon ? anonContext! : context!;
+  const page = await ctx.newPage();
   
   try {
     // Navigate and wait for the redirect to complete
@@ -412,7 +414,8 @@ export async function getFollows(ttl: number = CACHE_TTL.FOLLOWS): Promise<Follo
       if (!f._nextChapterUrl) continue;
       
       try {
-        const finalUrl = await resolveRedirectUrl(f._nextChapterUrl);
+        // Use anonymous context to avoid marking chapter as read
+        const finalUrl = await resolveRedirectUrl(f._nextChapterUrl, true);
         if (finalUrl) {
           const chapterIdMatch = finalUrl.match(/\/chapter\/(\d+)/);
           if (chapterIdMatch) {
@@ -518,8 +521,10 @@ export async function getToplist(toplist: ToplistType, ttl: number = CACHE_TTL.T
 
 /**
  * Get fiction details with chapters
+ * When useAnon is true: use anonymous context (for pre-caching, won't trigger tracking)
+ * When useAnon is false: use authenticated context (for live browsing)
  */
-export async function getFiction(id: number, ttl: number = CACHE_TTL.FICTION): Promise<Fiction | null> {
+export async function getFiction(id: number, ttl: number = CACHE_TTL.FICTION, useAnon: boolean = false): Promise<Fiction | null> {
   const cacheKey = `fiction:${id}`;
   const cached = getCache(cacheKey);
   if (cached) {
@@ -528,7 +533,7 @@ export async function getFiction(id: number, ttl: number = CACHE_TTL.FICTION): P
   }
 
   const url = `${ROYAL_ROAD_BASE_URL}/fiction/${id}`;
-  const { page, content } = await getPage(url, ".fic-title");
+  const { page, content } = await getPage(url, ".fic-title", useAnon);
   
   // Try to get chapters from window.chapters variable
   let chapters: Chapter[] = [];

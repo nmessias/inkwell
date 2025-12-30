@@ -51,7 +51,8 @@ async function warmFollowsCache(): Promise<void> {
       try {
         const fictionCacheKey = `fiction:${fiction.id}`;
         if (!isCached(fictionCacheKey)) {
-          const fictionDetails = await getFiction(fiction.id);
+          // Use anonymous context (useAnon=true) to avoid tracking on Royal Road
+          const fictionDetails = await getFiction(fiction.id, CACHE_TTL.FICTION, true);
           if (!fictionDetails?.chapters?.length) continue;
           
           // Find next chapter to read
