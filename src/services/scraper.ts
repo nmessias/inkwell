@@ -1,7 +1,8 @@
 /**
- * Playwright scraper with stealth for Royal Road
+ * Hybrid HTTP + Playwright scraper for Royal Road
+ * Tries fast HTTP fetch first, falls back to Firefox for Cloudflare challenges
  */
-import { chromium, Browser, BrowserContext, Page } from "playwright";
+import { firefox, Browser, BrowserContext, Page } from "playwright";
 import { parseHTML } from "linkedom";
 import { getCookiesForPlaywright, getCache, setCache, deleteCache, hasSessionCookies } from "./cache";
 import { ROYAL_ROAD_BASE_URL, CACHE_TTL, SCRAPER_TIMEOUT, SCRAPER_SELECTOR_TIMEOUT } from "../config";
@@ -9,6 +10,70 @@ import type { Fiction, FollowedFiction, Chapter, ChapterContent, ToplistType, Hi
 
 // Resource types to block for faster page loads (keep images for covers)
 const BLOCKED_RESOURCE_TYPES = ['stylesheet', 'font', 'media', 'other'] as const;
+
+// HTTP fetch user agent (same as Playwright context)
+const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+/**
+ * Get cookies formatted as HTTP Cookie header string
+ */
+function getCookiesForFetch(): string {
+  const cookies = getCookiesForPlaywright();
+  return cookies.map(c => `${c.name}=${c.value}`).join("; ");
+}
+
+/**
+ * Try fetching page via HTTP first (fast path, ~100ms)
+ * Returns HTML content if successful, null if Cloudflare blocked or error
+ */
+async function tryHttpFetch(url: string, includeCookies: boolean = true): Promise<{ content: string; finalUrl: string } | null> {
+  const startTime = Date.now();
+  
+  try {
+    const headers: Record<string, string> = {
+      "User-Agent": USER_AGENT,
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.5",
+    };
+    
+    if (includeCookies) {
+      const cookieHeader = getCookiesForFetch();
+      if (cookieHeader) {
+        headers["Cookie"] = cookieHeader;
+      }
+    }
+    
+    const response = await fetch(url, {
+      method: "GET",
+      headers,
+      redirect: "follow",
+    });
+    
+    if (!response.ok) {
+      console.log(`[Scraper] HTTP fetch failed: ${response.status} in ${Date.now() - startTime}ms`);
+      return null;
+    }
+    
+    const html = await response.text();
+    
+    // Check for Cloudflare challenge
+    if (html.includes("challenge-running") || html.includes("cf-browser-verification") || html.includes("cf-turnstile")) {
+      console.log(`[Scraper] Cloudflare challenge detected in ${Date.now() - startTime}ms, need browser`);
+      return null;
+    }
+    
+    // Check for login redirect (cookies not working)
+    if (html.includes('action="/account/login"') || response.url.includes("/account/login")) {
+      console.warn("[Scraper] WARNING: HTTP fetch got login page - cookies may be invalid or expired");
+    }
+    
+    console.log(`[Scraper] HTTP fetch succeeded in ${Date.now() - startTime}ms`);
+    return { content: html, finalUrl: response.url };
+  } catch (error) {
+    console.error(`[Scraper] HTTP fetch error in ${Date.now() - startTime}ms:`, error);
+    return null;
+  }
+}
 
 let browser: Browser | null = null;
 let context: BrowserContext | null = null;
@@ -44,27 +109,25 @@ export async function initBrowser(): Promise<void> {
     return;
   }
 
-  console.log("Initializing browser...");
+  console.log("Initializing Firefox browser...");
   const startTime = Date.now();
-  browser = await chromium.launch({
+  browser = await firefox.launch({
     headless: true,
-    args: [
-      "--disable-blink-features=AutomationControlled",
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      // Memory optimization for Docker/low-RAM environments
-      "--disable-dev-shm-usage",           // Use /tmp instead of /dev/shm (critical in Docker)
-      "--disable-gpu",                      // No GPU in containers
-      "--disable-extensions",
-      "--disable-background-networking",
-      "--disable-sync",
-      "--disable-translate",
-      "--no-first-run",
-      "--disable-features=IsolateOrigins,site-per-process,TranslateUI",
-      "--js-flags=--max-old-space-size=256", // Limit V8 heap to 256MB
-    ],
+    firefoxUserPrefs: {
+      // Memory optimizations for low-RAM environments
+      "browser.cache.disk.enable": false,
+      "browser.cache.memory.enable": true,
+      "browser.cache.memory.capacity": 32768, // 32MB cache
+      "browser.sessionhistory.max_entries": 2,
+      "browser.sessionstore.max_tabs_undo": 0,
+      // Disable unnecessary features
+      "media.autoplay.enabled": false,
+      "media.peerconnection.enabled": false,
+      "dom.webnotifications.enabled": false,
+      "geo.enabled": false,
+    },
   });
-  console.log(`Browser launched in ${Date.now() - startTime}ms`);
+  console.log(`Firefox launched in ${Date.now() - startTime}ms`);
 
   await createContext();
   await createAnonContext();
@@ -88,7 +151,7 @@ export async function createContext(): Promise<void> {
   console.log(`Creating context with ${cookies.length} cookies: ${cookies.map(c => c.name).join(", ")}`);
   
   context = await browser.newContext({
-    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    userAgent: USER_AGENT,
     viewport: { width: 1280, height: 720 },
     locale: "en-US",
     timezoneId: "America/New_York",
@@ -123,7 +186,7 @@ async function createAnonContext(): Promise<void> {
   }
 
   anonContext = await browser.newContext({
-    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    userAgent: USER_AGENT,
     viewport: { width: 1280, height: 720 },
     locale: "en-US",
     timezoneId: "America/New_York",
@@ -139,21 +202,36 @@ async function createAnonContext(): Promise<void> {
 }
 
 /**
- * Get a page, handling Cloudflare if needed
+ * Get a page using hybrid HTTP + Playwright approach
+ * 1. Try fast HTTP fetch first (~100ms)
+ * 2. Fall back to Firefox if Cloudflare blocks
+ * 
  * useAnon = true for caching requests (won't trigger "mark as read")
+ * Returns page: null when HTTP fetch succeeds (no browser page to close)
  */
 async function getPage(
   url: string,
   waitForSelector?: string,
   useAnon: boolean = false
-): Promise<{ page: Page; content: string }> {
+): Promise<{ page: Page | null; content: string }> {
   const startTime = Date.now();
   
-  // Require cookies before any scraping
-  if (!hasSessionCookies()) {
+  // Require cookies before any scraping (except for anon which might work without)
+  if (!useAnon && !hasSessionCookies()) {
     throw new Error("Session cookies not configured. Please set up your Royal Road cookies first.");
   }
 
+  // Fast path: try HTTP fetch first
+  console.log(`[Scraper] Trying HTTP fetch for ${url} (${useAnon ? 'anon' : 'auth'})`);
+  const httpResult = await tryHttpFetch(url, !useAnon ? true : false);
+  if (httpResult) {
+    console.log(`[Scraper] HTTP fetch succeeded in ${Date.now() - startTime}ms total`);
+    return { page: null, content: httpResult.content };
+  }
+
+  // Slow path: use Playwright Firefox
+  console.log(`[Scraper] Falling back to Firefox for ${url}`);
+  
   // Ensure browser is healthy
   await ensureBrowser();
   
@@ -180,18 +258,18 @@ async function getPage(
     
     while (attempts < maxAttempts) {
       attempts++;
-      console.log(`[Scraper] Fetching ${url} (attempt ${attempts}, context: ${useAnon ? 'anon' : 'auth'})`);
+      console.log(`[Scraper] Firefox fetching ${url} (attempt ${attempts})`);
       
       const navStart = Date.now();
       await page.goto(url, { 
         waitUntil: "domcontentloaded",
         timeout: SCRAPER_TIMEOUT 
       });
-      console.log(`[Scraper] Navigation completed in ${Date.now() - navStart}ms, final URL: ${page.url()}`);
+      console.log(`[Scraper] Firefox navigation completed in ${Date.now() - navStart}ms`);
 
       // Check for Cloudflare challenge
       const pageContent = await page.content();
-      if (pageContent.includes("challenge-running") || pageContent.includes("cf-browser-verification")) {
+      if (pageContent.includes("challenge-running") || pageContent.includes("cf-browser-verification") || pageContent.includes("cf-turnstile")) {
         console.log("[Scraper] Cloudflare challenge detected, waiting 5s...");
         await page.waitForTimeout(5000);
         continue;
@@ -202,7 +280,7 @@ async function getPage(
         console.warn("[Scraper] WARNING: Redirected to login page - cookies may be invalid or expired!");
       }
 
-      // Wait for specific selector if provided
+      // Wait for specific selector if provided (Firefox can do JS rendering)
       if (waitForSelector) {
         try {
           const selectorStart = Date.now();
@@ -214,7 +292,7 @@ async function getPage(
       }
 
       const content = await page.content();
-      console.log(`[Scraper] Page fetched in ${Date.now() - startTime}ms total`);
+      console.log(`[Scraper] Firefox page fetched in ${Date.now() - startTime}ms total`);
       return { page, content };
     }
 
@@ -242,7 +320,7 @@ async function resolveRedirectUrl(url: string): Promise<string | null> {
       method: "HEAD",
       redirect: "follow",
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": USER_AGENT,
       },
     });
     
@@ -383,7 +461,7 @@ export async function getFollows(ttl: number = CACHE_TTL.FOLLOWS): Promise<Follo
   }
 
   const { page, content } = await getPage(`${ROYAL_ROAD_BASE_URL}/my/follows`, ".fiction-list-item");
-  await page.close();
+  if (page) await page.close();
 
   const { document } = parseHTML(content);
   const fictions: FollowedFiction[] = [];
@@ -533,7 +611,7 @@ export async function getFollows(ttl: number = CACHE_TTL.FOLLOWS): Promise<Follo
  */
 export async function getHistory(): Promise<HistoryEntry[]> {
   const { page, content } = await getPage(`${ROYAL_ROAD_BASE_URL}/my/history`, ".fiction-list");
-  await page.close();
+  if (page) await page.close();
 
   const { document } = parseHTML(content);
   const history: HistoryEntry[] = [];
@@ -597,7 +675,7 @@ export async function getToplist(toplist: ToplistType, ttl: number = CACHE_TTL.T
   }
 
   const { page, content } = await getPage(toplist.url, ".fiction-list");
-  await page.close();
+  if (page) await page.close();
 
   const fictions = parseFictionList(content);
   
@@ -636,25 +714,26 @@ export async function getFiction(id: number, ttl: number = CACHE_TTL.FICTION, us
   const url = `${ROYAL_ROAD_BASE_URL}/fiction/${id}`;
   const { page, content } = await getPage(url, ".fic-title", useAnon);
   
-  // Try to get chapters from window.chapters variable
+  // Try to get chapters from window.chapters variable (only works with browser)
   let chapters: Chapter[] = [];
-  try {
-    const chaptersData = await page.evaluate(() => {
-      return (window as any).chapters || [];
-    });
-    
-    chapters = chaptersData.map((c: any) => ({
-      id: c.id,
-      title: c.title,
-      url: `/chapter/${c.id}`,
-      date: c.date,
-      order: c.order,
-    }));
-  } catch (e) {
-    console.log("Could not get chapters from JS, parsing HTML");
+  if (page) {
+    try {
+      const chaptersData = await page.evaluate(() => {
+        return (window as any).chapters || [];
+      });
+      
+      chapters = chaptersData.map((c: any) => ({
+        id: c.id,
+        title: c.title,
+        url: `/chapter/${c.id}`,
+        date: c.date,
+        order: c.order,
+      }));
+    } catch (e) {
+      console.log("Could not get chapters from JS, parsing HTML");
+    }
+    await page.close();
   }
-
-  await page.close();
 
   const { document } = parseHTML(content);
 
@@ -886,51 +965,89 @@ export async function getChapter(chapterId: number, ttl?: number): Promise<Chapt
     useAnon
   );
 
-  // Wait for "Mark as Read" when reading live
-  if (!isPreCaching) {
-    await page.waitForTimeout(2000);
-  }
+  // Variables for navigation and fiction info
+  let navInfo = { prevUrl: null as string | null, nextUrl: null as string | null };
+  let fictionInfo = { fictionId: 0, fictionTitle: "", fictionUrl: "" };
 
-  // Get navigation info
-  const navInfo = await page.evaluate(() => {
-    let prevUrl = null;
-    let nextUrl = null;
+  if (page) {
+    // Wait for "Mark as Read" when reading live (only with browser)
+    if (!isPreCaching) {
+      await page.waitForTimeout(2000);
+    }
+
+    // Get navigation info via JS evaluation
+    navInfo = await page.evaluate(() => {
+      let prevUrl = null;
+      let nextUrl = null;
+      
+      const navButtons = document.querySelector('.nav-buttons');
+      if (navButtons) {
+        const links = navButtons.querySelectorAll('a.btn[href*="/chapter/"]');
+        for (const link of links) {
+          const text = link.textContent || '';
+          if (text.includes('Previous')) {
+            prevUrl = link.getAttribute('href');
+          }
+          if (text.includes('Next')) {
+            nextUrl = link.getAttribute('href');
+          }
+        }
+      }
+      
+      return { prevUrl, nextUrl };
+    });
+
+    // Get fiction info via JS evaluation
+    fictionInfo = await page.evaluate(() => {
+      const urlMatch = window.location.href.match(/\/fiction\/(\d+)/);
+      const fictionIdFromUrl = urlMatch ? parseInt(urlMatch[1], 10) : 0;
+      
+      const fictionLink = document.querySelector(".fic-title a, a.fic-title, .fiction-title a, .fic-header a[href*='/fiction/']") ||
+                          document.querySelector(".row a[href*='/fiction/']:not([href*='/chapter/']):not(.btn)");
+      const href = fictionLink?.getAttribute("href") || "";
+      const hrefMatch = href.match(/\/fiction\/(\d+)/);
+      
+      return {
+        fictionId: fictionIdFromUrl || (hrefMatch ? parseInt(hrefMatch[1], 10) : 0),
+        fictionTitle: fictionLink?.textContent?.trim() || "",
+        fictionUrl: href,
+      };
+    });
+
+    await page.close();
+  } else {
+    // Parse navigation and fiction info from HTML (HTTP fetch path)
+    const { document: doc } = parseHTML(content);
     
-    const navButtons = document.querySelector('.nav-buttons');
+    // Navigation links
+    const navButtons = doc.querySelector('.nav-buttons');
     if (navButtons) {
       const links = navButtons.querySelectorAll('a.btn[href*="/chapter/"]');
       for (const link of links) {
         const text = link.textContent || '';
+        const href = link.getAttribute('href');
         if (text.includes('Previous')) {
-          prevUrl = link.getAttribute('href');
+          navInfo.prevUrl = href;
         }
         if (text.includes('Next')) {
-          nextUrl = link.getAttribute('href');
+          navInfo.nextUrl = href;
         }
       }
     }
     
-    return { prevUrl, nextUrl };
-  });
-
-  // Get fiction info
-  const fictionInfo = await page.evaluate(() => {
-    const urlMatch = window.location.href.match(/\/fiction\/(\d+)/);
-    const fictionIdFromUrl = urlMatch ? parseInt(urlMatch[1], 10) : 0;
-    
-    const fictionLink = document.querySelector(".fic-title a, a.fic-title, .fiction-title a, .fic-header a[href*='/fiction/']") ||
-                        document.querySelector(".row a[href*='/fiction/']:not([href*='/chapter/']):not(.btn)");
-    const href = fictionLink?.getAttribute("href") || "";
-    const hrefMatch = href.match(/\/fiction\/(\d+)/);
-    
-    return {
-      fictionId: fictionIdFromUrl || (hrefMatch ? parseInt(hrefMatch[1], 10) : 0),
-      fictionTitle: fictionLink?.textContent?.trim() || "",
-      fictionUrl: href,
-    };
-  });
-
-  await page.close();
+    // Fiction info from link
+    const fictionLink = doc.querySelector(".fic-title a, a.fic-title, .fiction-title a, .fic-header a[href*='/fiction/']") ||
+                        doc.querySelector(".row a[href*='/fiction/']:not([href*='/chapter/']):not(.btn)");
+    if (fictionLink) {
+      const href = fictionLink.getAttribute("href") || "";
+      const hrefMatch = href.match(/\/fiction\/(\d+)/);
+      fictionInfo = {
+        fictionId: hrefMatch ? parseInt(hrefMatch[1], 10) : 0,
+        fictionTitle: fictionLink.textContent?.trim() || "",
+        fictionUrl: href,
+      };
+    }
+  }
 
   const { document } = parseHTML(content);
 
@@ -1051,7 +1168,7 @@ export async function validateCookies(): Promise<boolean> {
   try {
     await createContext();
     const { page, content } = await getPage(`${ROYAL_ROAD_BASE_URL}/my/follows`);
-    await page.close();
+    if (page) await page.close();
     
     return !content.includes('action="/account/login"') && !content.includes("Sign In");
   } catch (e) {
@@ -1068,7 +1185,7 @@ export async function searchFictions(query: string): Promise<Fiction[]> {
   const searchUrl = `${ROYAL_ROAD_BASE_URL}/fictions/search?title=${encodedQuery}`;
   
   const { page, content } = await getPage(searchUrl, ".fiction-list-item");
-  await page.close();
+  if (page) await page.close();
   
   return parseFictionList(content);
 }
