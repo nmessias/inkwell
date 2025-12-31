@@ -11,17 +11,28 @@ export function HomePage({
   settings = DEFAULT_READER_SETTINGS,
   risingStars = [],
   weeklyPopular = [],
+  hasCookies = false,
 }: {
   settings?: ReaderSettings;
   risingStars?: Fiction[];
   weeklyPopular?: Fiction[];
+  hasCookies?: boolean;
 }): JSX.Element {
   return (
     <Layout title="Home" settings={settings} currentPath="/">
       <h1>Welcome to Tome</h1>
       <p>Read web fiction on your e-ink device.</p>
 
-      {risingStars.length > 0 && (
+      {!hasCookies && (
+        <div class="mt-24">
+          <p><strong>Get started:</strong></p>
+          <p class="mt-8">
+            <a href="/settings">Configure your Royal Road cookies</a> to enable browsing.
+          </p>
+        </div>
+      )}
+
+      {hasCookies && risingStars.length > 0 && (
         <>
           <SectionTitle>Rising Stars</SectionTitle>
           {risingStars.map((f, i) => (
@@ -35,7 +46,7 @@ export function HomePage({
         </>
       )}
 
-      {weeklyPopular.length > 0 && (
+      {hasCookies && weeklyPopular.length > 0 && (
         <>
           <SectionTitle>Weekly Popular</SectionTitle>
           {weeklyPopular.map((f, i) => (
@@ -49,7 +60,7 @@ export function HomePage({
         </>
       )}
 
-      {risingStars.length === 0 && weeklyPopular.length === 0 && (
+      {hasCookies && risingStars.length === 0 && weeklyPopular.length === 0 && (
         <div class="mt-24">
           <p>Popular fictions are loading in the background.</p>
           <p class="mt-8">

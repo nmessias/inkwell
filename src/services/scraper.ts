@@ -3,9 +3,12 @@
  */
 import { chromium, Browser, BrowserContext, Page } from "playwright";
 import { parseHTML } from "linkedom";
-import { getCookiesForPlaywright, getCache, setCache, deleteCache } from "./cache";
+import { getCookiesForPlaywright, getCache, setCache, deleteCache, hasSessionCookies } from "./cache";
 import { ROYAL_ROAD_BASE_URL, CACHE_TTL, SCRAPER_TIMEOUT, SCRAPER_SELECTOR_TIMEOUT } from "../config";
 import type { Fiction, FollowedFiction, Chapter, ChapterContent, ToplistType, HistoryEntry } from "../types";
+
+// Resource types to block for faster page loads (keep images for covers)
+const BLOCKED_RESOURCE_TYPES = ['stylesheet', 'font', 'media', 'other'] as const;
 
 let browser: Browser | null = null;
 let context: BrowserContext | null = null;
@@ -15,9 +18,16 @@ let anonContext: BrowserContext | null = null;
 
 /**
  * Initialize browser with stealth settings
+ * Requires session cookies to be configured first
  */
 export async function initBrowser(): Promise<void> {
   if (browser) return;
+
+  // Don't start browser without cookies - saves resources
+  if (!hasSessionCookies()) {
+    console.log("Skipping browser init - no session cookies configured");
+    return;
+  }
 
   console.log("Initializing browser...");
   browser = await chromium.launch({
@@ -118,12 +128,27 @@ async function getPage(
   waitForSelector?: string,
   useAnon: boolean = false
 ): Promise<{ page: Page; content: string }> {
+  // Require cookies before any scraping
+  if (!hasSessionCookies()) {
+    throw new Error("Session cookies not configured. Please set up your Royal Road cookies first.");
+  }
+
   if (!context) {
     await initBrowser();
   }
 
   const ctx = useAnon ? anonContext! : context!;
   const page = await ctx.newPage();
+  
+  // Block unnecessary resources for faster loads (keep images for covers)
+  await page.route('**/*', (route) => {
+    const resourceType = route.request().resourceType();
+    if (BLOCKED_RESOURCE_TYPES.includes(resourceType as any)) {
+      route.abort();
+    } else {
+      route.continue();
+    }
+  });
   
   try {
     let attempts = 0;
@@ -172,12 +197,26 @@ async function getPage(
  * useAnon = true to avoid marking chapters as read (for cache warming)
  */
 async function resolveRedirectUrl(url: string, useAnon: boolean = false): Promise<string | null> {
+  if (!hasSessionCookies()) {
+    return null;
+  }
+
   if (!context || !anonContext) {
     await initBrowser();
   }
 
   const ctx = useAnon ? anonContext! : context!;
   const page = await ctx.newPage();
+  
+  // Block unnecessary resources
+  await page.route('**/*', (route) => {
+    const resourceType = route.request().resourceType();
+    if (BLOCKED_RESOURCE_TYPES.includes(resourceType as any)) {
+      route.abort();
+    } else {
+      route.continue();
+    }
+  });
   
   try {
     // Navigate and wait for the redirect to complete

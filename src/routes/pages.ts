@@ -38,6 +38,7 @@ import {
 import { triggerCacheWarm } from "../services/jobs";
 import { TOPLISTS } from "../config";
 import type { ReaderSettings } from "../config";
+import type { Fiction } from "../types";
 
 /**
  * Handle page routes
@@ -54,17 +55,26 @@ export async function handlePageRoute(
   // Home - show cached toplists only (non-blocking)
   // Toplists are populated by background jobs or by visiting /toplist/* pages
   if (path === "/" && method === "GET") {
-    const risingStarsToplist = TOPLISTS.find(t => t.slug === 'rising-stars');
-    const weeklyPopularToplist = TOPLISTS.find(t => t.slug === 'weekly-popular');
+    const hasCookies = hasSessionCookies();
     
-    // Use cache-only to avoid blocking the homepage on slow scraping
-    const risingStars = risingStarsToplist ? getToplistCached(risingStarsToplist) : null;
-    const weeklyPopular = weeklyPopularToplist ? getToplistCached(weeklyPopularToplist) : null;
+    // Only show toplists if cookies are configured
+    let risingStars: Fiction[] = [];
+    let weeklyPopular: Fiction[] = [];
+    
+    if (hasCookies) {
+      const risingStarsToplist = TOPLISTS.find(t => t.slug === 'rising-stars');
+      const weeklyPopularToplist = TOPLISTS.find(t => t.slug === 'weekly-popular');
+      
+      // Use cache-only to avoid blocking the homepage on slow scraping
+      risingStars = (risingStarsToplist ? getToplistCached(risingStarsToplist) : null)?.slice(0, 10) || [];
+      weeklyPopular = (weeklyPopularToplist ? getToplistCached(weeklyPopularToplist) : null)?.slice(0, 10) || [];
+    }
     
     return html(HomePage({ 
       settings, 
-      risingStars: risingStars?.slice(0, 10) || [],
-      weeklyPopular: weeklyPopular?.slice(0, 10) || [],
+      risingStars,
+      weeklyPopular,
+      hasCookies,
     }));
   }
 
@@ -236,6 +246,12 @@ export async function handlePageRoute(
       return html(SearchPage({ settings }));
     }
 
+    if (!hasSessionCookies()) {
+      return html(
+        ErrorPage({ title: "Not Configured", message: "Please configure your session cookies first.", retryUrl: "/settings", settings })
+      );
+    }
+
     try {
       const results = await searchFictions(query);
       return html(SearchPage({ query, results, page, settings }));
@@ -255,6 +271,12 @@ export async function handlePageRoute(
 
     if (!toplist) {
       return html(ErrorPage({ title: "Not Found", message: `Toplist "${slug}" not found.`, settings }), 404);
+    }
+
+    if (!hasSessionCookies()) {
+      return html(
+        ErrorPage({ title: "Not Configured", message: "Please configure your session cookies first.", retryUrl: "/settings", settings })
+      );
     }
 
     try {
@@ -280,6 +302,12 @@ export async function handlePageRoute(
     const id = parseInt(fictionMatch[0], 10);
     const page = parseInt(url.searchParams.get("page") || "1", 10);
 
+    if (!hasSessionCookies()) {
+      return html(
+        ErrorPage({ title: "Not Configured", message: "Please configure your session cookies first.", retryUrl: "/settings", settings })
+      );
+    }
+
     try {
       const fiction = await getFiction(id);
       if (!fiction) {
@@ -303,6 +331,12 @@ export async function handlePageRoute(
   const chapterMatch = matchPath(path, URL_PATTERNS.chapter);
   if (chapterMatch && method === "GET") {
     const id = parseInt(chapterMatch[0], 10);
+
+    if (!hasSessionCookies()) {
+      return html(
+        ErrorPage({ title: "Not Configured", message: "Please configure your session cookies first.", retryUrl: "/settings", settings })
+      );
+    }
 
     try {
       const chapter = await getChapter(id);
