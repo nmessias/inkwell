@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "=== Inkwell Startup ==="
+echo "=== Tome Startup ==="
 
 # Ensure data directory exists
 mkdir -p /app/data
@@ -10,5 +10,5 @@ mkdir -p /app/data
 # (avoids better-sqlite3 native module compatibility issues)
 bun run src/lib/migrate.ts
 
-echo "Starting Inkwell server..."
+echo "Starting Tome server..."
 exec bun run src/index.ts

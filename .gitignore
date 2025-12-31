@@ -16,3 +16,7 @@ bun.lock
 # OS files
 .DS_Store
 Thumbs.db
+
+# Caddy volumes (if running locally with production profile)
+caddy_data/
+caddy_config/
