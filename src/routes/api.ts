@@ -5,6 +5,7 @@ import { json, matchPath, URL_PATTERNS } from "../server";
 import { getChapter, getFiction } from "../services/scraper";
 import { getImageCache, setImageCache } from "../services/cache";
 import { CACHE_TTL } from "../config";
+import { createRemoteSession, isValidToken, generateQRCode } from "../services/remote";
 
 /**
  * Handle API routes
@@ -115,6 +116,73 @@ export async function handleApiRoute(
     } catch (error: any) {
       console.error(`Error fetching cover for fiction ${fictionId}:`, error);
       return new Response("Error fetching cover", { status: 500 });
+    }
+  }
+
+  // WebSocket diagnostic report
+  if (path === "/api/ws-test/report" && method === "POST") {
+    try {
+      const report = await req.json();
+      
+      console.log("\n[WS-TEST] ═══════════════════════════════════════");
+      console.log("[WS-TEST] DIAGNOSTIC REPORT");
+      console.log("[WS-TEST] ═══════════════════════════════════════");
+      console.log("[WS-TEST] User-Agent:", report.userAgent || "unknown");
+      console.log("[WS-TEST] WebSocket API exists:", report.hasWebSocket);
+      console.log("[WS-TEST] Connection attempted:", report.connectAttempted);
+      console.log("[WS-TEST] Connection success:", report.connectSuccess);
+      console.log("[WS-TEST] Message echo success:", report.messageSuccess);
+      if (report.error) {
+        console.log("[WS-TEST] Error:", report.error);
+      }
+      if (report.timing) {
+        console.log("[WS-TEST] Connection time:", report.timing + "ms");
+      }
+      console.log("[WS-TEST] ═══════════════════════════════════════\n");
+      
+      return json({ received: true });
+    } catch (e: any) {
+      console.error("[WS-TEST] Failed to parse report:", e.message);
+      return json({ error: "Invalid report format" }, 400);
+    }
+  }
+
+  if (path === "/api/remote/create" && method === "POST") {
+    const token = createRemoteSession();
+    const protocol = req.headers.get("x-forwarded-proto") || "http";
+    const host = req.headers.get("host") || "localhost:3000";
+    
+    return json({
+      token,
+      remoteUrl: `${protocol}://${host}/remote/${token}`,
+      qrUrl: `/api/remote/qr/${token}`,
+      wsUrl: `${protocol === "https" ? "wss" : "ws"}://${host}/ws/remote/${token}`,
+    });
+  }
+
+  const qrMatch = path.match(/^\/api\/remote\/qr\/([a-z0-9]+)$/);
+  if (qrMatch && method === "GET") {
+    const token = qrMatch[1];
+    
+    if (!isValidToken(token)) {
+      return new Response("Invalid token", { status: 404 });
+    }
+    
+    const protocol = req.headers.get("x-forwarded-proto") || "http";
+    const host = req.headers.get("host") || "localhost:3000";
+    const remoteUrl = `${protocol}://${host}/remote/${token}`;
+    
+    try {
+      const qrBuffer = await generateQRCode(remoteUrl);
+      return new Response(new Uint8Array(qrBuffer), {
+        headers: {
+          "Content-Type": "image/png",
+          "Cache-Control": "no-store",
+        },
+      });
+    } catch (e: any) {
+      console.error("[REMOTE] QR generation failed:", e.message);
+      return new Response("QR generation failed", { status: 500 });
     }
   }
 

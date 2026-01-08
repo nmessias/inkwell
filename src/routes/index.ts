@@ -14,6 +14,10 @@ const PUBLIC_PATHS = [
   "/api/auth",
   "/public",
   "/fonts",
+  "/ws-test",
+  "/api/ws-test",
+  "/remote",
+  "/api/remote",
 ];
 
 /**

@@ -33,6 +33,7 @@ export function ReaderPage({
     <ReaderLayout title={chapter.title} settings={settings}>
       <header class="reader-header">
         <div class="header-left">
+          <span class="remote-icon" id="remote-icon">Remote</span>
           <h1 class="chapter-title" safe>
             {chapter.title}
           </h1>
@@ -99,6 +100,17 @@ export function ReaderPage({
               <span class="font-size-display">{fontSizeDisplay}</span>
               <button class="font-increase">+</button>
             </div>
+          </div>
+
+          <div class="settings-row">
+            <label>Remote Control</label>
+            <button class="remote-btn" id="remote-btn">Enable</button>
+          </div>
+          
+          <div class="remote-qr" id="remote-qr" style="display: none;">
+            <p style="margin-bottom: 10px; font-size: 14px;">Scan with your phone:</p>
+            <img id="remote-qr-img" alt="QR Code" style="width: 200px; height: 200px; background: #eee;" />
+            <p class="remote-status" id="remote-status">Waiting for connection...</p>
           </div>
 
           <button class="settings-close">Close</button>

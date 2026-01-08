@@ -29,7 +29,11 @@
     chapterId: null,
     // E-ink refresh (prevents ghosting)
     refreshCount: 0,
-    REFRESH_INTERVAL: 10
+    REFRESH_INTERVAL: 10,
+    // Remote control
+    remoteWs: null,
+    remoteToken: null,
+    remoteConnected: false
   };
 
   // ============================================================
@@ -122,6 +126,119 @@
 
   function closeModal() {
     S.els.modal.classList.remove('open');
+  }
+
+  // ============================================================
+  // REMOTE CONTROL
+  // ============================================================
+
+  function showRemoteIcon(show) {
+    var icon = document.getElementById('remote-icon');
+    if (icon) {
+      icon.style.display = show ? 'inline' : 'none';
+    }
+  }
+
+  function updateRemoteStatus(text) {
+    var status = document.getElementById('remote-status');
+    if (status) status.textContent = text;
+  }
+
+  function showRemoteDisconnected() {
+    S.remoteConnected = false;
+    showRemoteIcon(false);
+    
+    var indicator = S.els.indicator;
+    if (indicator) {
+      var original = indicator.textContent;
+      indicator.textContent = 'Remote disconnected';
+      setTimeout(function() {
+        indicator.textContent = original;
+      }, 2000);
+    }
+  }
+
+  function connectRemoteWs(wsUrl) {
+    if (S.remoteWs) {
+      try { S.remoteWs.close(); } catch (e) {}
+    }
+
+    try {
+      S.remoteWs = new WebSocket(wsUrl);
+    } catch (e) {
+      updateRemoteStatus('Connection failed');
+      return;
+    }
+
+    S.remoteWs.onopen = function() {
+      updateRemoteStatus('Connected - scan QR with phone');
+    };
+
+    S.remoteWs.onmessage = function(e) {
+      try {
+        var data = JSON.parse(e.data);
+        if (data.type === 'controller_joined') {
+          S.remoteConnected = true;
+          showRemoteIcon(true);
+          updateRemoteStatus('Phone connected!');
+        } else if (data.type === 'controller_left') {
+          showRemoteDisconnected();
+          updateRemoteStatus('Phone disconnected');
+        } else if (data.action === 'next') {
+          nextPage();
+        } else if (data.action === 'prev') {
+          prevPage();
+        }
+      } catch (err) {}
+    };
+
+    S.remoteWs.onerror = function() {
+      updateRemoteStatus('Connection error');
+    };
+
+    S.remoteWs.onclose = function() {
+      if (S.remoteConnected) {
+        showRemoteDisconnected();
+      }
+      S.remoteWs = null;
+    };
+  }
+
+  function enableRemote() {
+    var btn = document.getElementById('remote-btn');
+    var qrContainer = document.getElementById('remote-qr');
+    var qrImg = document.getElementById('remote-qr-img');
+    
+    if (!btn || !qrContainer || !qrImg) return;
+
+    btn.textContent = 'Loading...';
+    btn.disabled = true;
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/remote/create', true);
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4) {
+        if (xhr.status === 200) {
+          try {
+            var data = JSON.parse(xhr.responseText);
+            S.remoteToken = data.token;
+            qrImg.src = data.qrUrl;
+            qrContainer.style.display = 'block';
+            btn.textContent = 'New QR';
+            btn.disabled = false;
+            updateRemoteStatus('Waiting for connection...');
+            connectRemoteWs(data.wsUrl + '?role=reader');
+          } catch (e) {
+            btn.textContent = 'Error';
+            btn.disabled = false;
+          }
+        } else {
+          btn.textContent = 'Error';
+          btn.disabled = false;
+        }
+      }
+    };
+    xhr.send();
   }
 
   // ============================================================
@@ -410,6 +527,10 @@
     var fontIncrease = document.querySelector('.font-increase');
     if (fontDecrease) fontDecrease.onclick = function() { changeFontSize(-1); };
     if (fontIncrease) fontIncrease.onclick = function() { changeFontSize(1); };
+    
+    // Remote control button
+    var remoteBtn = document.getElementById('remote-btn');
+    if (remoteBtn) remoteBtn.onclick = enableRemote;
     
     // Nav button clicks (event delegation)
     if (S.els.footer) {

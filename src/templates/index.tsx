@@ -34,3 +34,5 @@ export { ReaderPage } from "./pages/reader";
 export { SearchPage } from "./pages/search";
 export { ErrorPage, LoadingPage } from "./pages/error";
 export { LoginPage } from "./pages/login";
+export { WsTestPage } from "./pages/ws-test";
+export { RemotePage } from "./pages/remote";

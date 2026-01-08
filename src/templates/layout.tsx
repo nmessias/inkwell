@@ -3,7 +3,7 @@
  */
 import type { PropsWithChildren } from "@kitajs/html";
 import type { ReaderSettings } from "../config";
-import { DEFAULT_READER_SETTINGS } from "../config";
+import { DEFAULT_READER_SETTINGS, APP_VERSION } from "../config";
 import { Header } from "./components";
 
 export interface LayoutProps {
@@ -29,10 +29,12 @@ export function Layout({
 }: PropsWithChildren<LayoutProps>): JSX.Element {
   const darkClass = settings.dark ? "dark-mode" : "";
   const fullBodyClass = [bodyClass, darkClass].filter(Boolean).join(" ");
-  const cssFile = css === "reader" ? "/public/css/reader.css" : "/public/css/base.css";
+  const cssFile = css === "reader" 
+    ? `/public/css/reader.css?v=${APP_VERSION}` 
+    : `/public/css/base.css?v=${APP_VERSION}`;
   
   // Default scripts for base pages
-  const defaultScripts = css === "base" ? ["/public/js/toggle.js"] : [];
+  const defaultScripts = css === "base" ? [`/public/js/toggle.js?v=${APP_VERSION}`] : [];
   const allScripts = [...defaultScripts, ...scripts];
 
   return (
@@ -65,7 +67,7 @@ export interface ReaderLayoutProps {
 }
 
 /**
- * Layout for the reader page (custom structure)
+ * Layout for reader page (custom structure)
  */
 export function ReaderLayout({
   title,
@@ -73,7 +75,7 @@ export function ReaderLayout({
   settings = DEFAULT_READER_SETTINGS,
 }: PropsWithChildren<ReaderLayoutProps>): JSX.Element {
   const bodyClass = settings.dark ? "dark-mode" : "";
-
+  
   return (
     <>
       {"<!DOCTYPE html>"}
@@ -82,11 +84,11 @@ export function ReaderLayout({
           <meta charset="UTF-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
           <title safe>{title} - Tome</title>
-          <link rel="stylesheet" href="/public/css/reader.css" />
+          <link rel="stylesheet" href={`/public/css/reader.css?v=${APP_VERSION}`} />
         </head>
         <body class={bodyClass || undefined}>
           {children}
-          <script src="/public/js/reader.js"></script>
+          <script src={`/public/js/reader.js?v=${APP_VERSION}`}></script>
         </body>
       </html>
     </>

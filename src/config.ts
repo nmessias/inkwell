@@ -73,3 +73,6 @@ export const NAV_LINKS = [
   { href: "/search", label: "Search" },
   { href: "/settings", label: "Settings" },
 ] as const;
+
+// App version for cache busting
+export const APP_VERSION = "1.1.0";

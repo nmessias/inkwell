@@ -12,6 +12,8 @@ import {
   FictionPage,
   SearchPage,
   ErrorPage,
+  WsTestPage,
+  RemotePage,
 } from "../templates";
 import { ReaderPage } from "../templates/pages/reader";
 import {
@@ -40,6 +42,7 @@ import { triggerCacheWarm } from "../services/jobs";
 import { TOPLISTS } from "../config";
 import type { ReaderSettings } from "../config";
 import type { Fiction } from "../types";
+import { isValidToken } from "../services/remote";
 
 /**
  * Handle page routes
@@ -52,6 +55,38 @@ export async function handlePageRoute(
   settings: ReaderSettings
 ): Promise<Response | null> {
   const method = req.method;
+
+  // WebSocket diagnostic test page
+  if (path === "/ws-test" && method === "GET") {
+    const protocol = req.headers.get("x-forwarded-proto") || "http";
+    const host = req.headers.get("host") || "localhost:3000";
+    const wsProtocol = protocol === "https" ? "wss" : "ws";
+    const wsUrl = `${wsProtocol}://${host}/ws/test`;
+    
+    return html(WsTestPage({ settings, wsUrl }));
+  }
+
+  const remoteMatch = path.match(/^\/remote\/([a-z0-9]+)$/);
+  if (remoteMatch && method === "GET") {
+    const token = remoteMatch[1];
+    
+    if (!isValidToken(token)) {
+      return html(ErrorPage({ 
+        title: "Invalid Session", 
+        message: "This remote control session has expired or is invalid.", 
+        settings 
+      }), 404);
+    }
+    
+    const protocol = req.headers.get("x-forwarded-proto") || "http";
+    const host = req.headers.get("host") || "localhost:3000";
+    const wsProtocol = protocol === "https" ? "wss" : "ws";
+    const wsUrl = `${wsProtocol}://${host}/ws/remote/${token}?role=controller`;
+    
+    return new Response(RemotePage({ token, wsUrl }) as string, {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
+  }
 
   // Home - show cached toplists only (non-blocking)
   // Toplists are populated by background jobs or by visiting /toplist/* pages
