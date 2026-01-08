@@ -134,7 +134,8 @@ a:visited {
   column-gap: 5vw;
   height: 100%;
   width: 95%;
-  padding-bottom: 60px;
+  padding-top: 15px;
+  padding-bottom: 15px;
   overflow-x: scroll;
   scrollbar-width: none;
   -ms-overflow-style: none;
