@@ -204,7 +204,7 @@ a:visited {
 /* Page indicator */
 .page-indicator {
   position: fixed;
-  bottom: 60px;
+  bottom: 75px;
   left: 50%;
   transform: translateX(-50%);
   background: #000;
