@@ -148,6 +148,13 @@ a:visited {
   margin: 0 0 1em 0;
 }
 
+.reader-content .chapter-title-prepended {
+  font-size: 1.4em;
+  font-weight: 600;
+  margin: 0 0 1em 0;
+  text-align: center;
+}
+
 .reader-content em,
 .reader-content i {
   font-style: italic;

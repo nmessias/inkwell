@@ -11,6 +11,181 @@ import type { Fiction, FollowedFiction, Chapter, ChapterContent, ToplistType, Hi
 // Resource types to block for faster page loads (keep images for covers)
 const BLOCKED_RESOURCE_TYPES = ['stylesheet', 'font', 'media', 'other'] as const;
 
+// Number words for normalization (chapter titles like "Chapter Forty-Seven")
+const NUMBER_WORDS: Record<string, string> = {
+  zero: "0", one: "1", two: "2", three: "3", four: "4", five: "5",
+  six: "6", seven: "7", eight: "8", nine: "9", ten: "10",
+  eleven: "11", twelve: "12", thirteen: "13", fourteen: "14", fifteen: "15",
+  sixteen: "16", seventeen: "17", eighteen: "18", nineteen: "19", twenty: "20",
+  thirty: "30", forty: "40", fifty: "50", sixty: "60", seventy: "70",
+  eighty: "80", ninety: "90", hundred: "100",
+};
+
+/**
+ * Normalize text for fuzzy matching:
+ * - Lowercase
+ * - Convert number words to digits
+ * - Remove punctuation
+ * - Collapse whitespace
+ */
+function normalizeText(text: string): string {
+  let normalized = text.toLowerCase();
+  
+  // Convert number words to digits (e.g., "forty-seven" -> "40-7" -> "407")
+  // Handle compound numbers like "forty-seven" or "forty seven"
+  for (const [word, digit] of Object.entries(NUMBER_WORDS)) {
+    normalized = normalized.replace(new RegExp(`\\b${word}\\b`, 'gi'), digit);
+  }
+  
+  // Remove punctuation except spaces
+  normalized = normalized.replace(/[^\w\s]/g, ' ');
+  
+  // Collapse whitespace
+  normalized = normalized.replace(/\s+/g, ' ').trim();
+  
+  return normalized;
+}
+
+/**
+ * Extract the "core" title by stripping common chapter prefixes
+ * e.g., "Chapter 47: The Battle Begins" -> "the battle begins"
+ * e.g., "Ch. 12 - Awakening" -> "awakening"
+ */
+function extractCoreTitle(title: string): string {
+  const normalized = normalizeText(title);
+  
+  // Common chapter prefix patterns to strip
+  const prefixPatterns = [
+    /^chapter\s+\d+\s*[:\-–—]\s*/i,      // "Chapter 47: " or "Chapter 47 - "
+    /^chapter\s+\d+\s*/i,                 // "Chapter 47 "
+    /^ch\.?\s*\d+\s*[:\-–—]\s*/i,         // "Ch. 12: " or "Ch 12 - "
+    /^ch\.?\s*\d+\s*/i,                   // "Ch. 12 "
+    /^\d+\s*[:\-–—\.]\s*/i,               // "47: " or "47. " or "47 - "
+    /^part\s+\d+\s*[:\-–—]\s*/i,          // "Part 3: "
+    /^book\s+\d+\s*[:\-–—]\s*/i,          // "Book 2: "
+    /^arc\s+\d+\s*[:\-–—]\s*/i,           // "Arc 1: "
+    /^episode\s+\d+\s*[:\-–—]\s*/i,       // "Episode 5: "
+    /^prologue\s*[:\-–—]?\s*/i,           // "Prologue: "
+    /^epilogue\s*[:\-–—]?\s*/i,           // "Epilogue: "
+    /^interlude\s*[:\-–—]?\s*/i,          // "Interlude: "
+  ];
+  
+  let core = normalized;
+  for (const pattern of prefixPatterns) {
+    core = core.replace(pattern, '');
+  }
+  
+  return core.trim();
+}
+
+/**
+ * Extract text content from first N block elements or first N characters of HTML
+ */
+function extractFirstLines(html: string, maxChars: number = 500): string {
+  const { document } = parseHTML(`<div>${html}</div>`);
+  const root = document.querySelector('div');
+  if (!root) return '';
+  
+  // Get text from first 3 block-level elements
+  const blockElements = root.querySelectorAll('p, div, h1, h2, h3, h4, h5, h6');
+  let text = '';
+  let count = 0;
+  
+  for (const el of blockElements) {
+    if (count >= 3) break;
+    const elText = el.textContent?.trim();
+    if (elText) {
+      text += elText + '\n';
+      count++;
+    }
+  }
+  
+  // Fallback: if no block elements found, get raw text content
+  if (!text.trim()) {
+    text = root.textContent || '';
+  }
+  
+  // Limit to maxChars
+  return text.slice(0, maxChars);
+}
+
+/**
+ * Calculate word overlap percentage between two strings
+ */
+function wordOverlap(str1: string, str2: string): number {
+  const words1 = str1.split(/\s+/).filter(w => w.length > 2); // Ignore very short words
+  const words2 = str2.split(/\s+/).filter(w => w.length > 2);
+  
+  if (words1.length === 0) return 0;
+  
+  let matches = 0;
+  for (const word of words1) {
+    if (words2.some(w => w.includes(word) || word.includes(w))) {
+      matches++;
+    }
+  }
+  
+  return matches / words1.length;
+}
+
+/**
+ * Check if the chapter title (or a significant part of it) already appears
+ * in the first few lines of the content
+ */
+function shouldPrependTitle(title: string, htmlContent: string): boolean {
+  if (!title || !htmlContent) return true;
+  
+  const normalizedTitle = normalizeText(title);
+  const coreTitle = extractCoreTitle(title);
+  const firstLines = extractFirstLines(htmlContent);
+  const normalizedContent = normalizeText(firstLines);
+  
+  // Check 1: Full title appears as substring
+  if (normalizedContent.includes(normalizedTitle)) {
+    return false;
+  }
+  
+  // Check 2: Core title appears as substring (if different from full title)
+  if (coreTitle && coreTitle !== normalizedTitle && normalizedContent.includes(coreTitle)) {
+    return false;
+  }
+  
+  // Check 3: High word overlap (60%+) between core title and content
+  if (coreTitle && coreTitle.length > 3) {
+    const overlap = wordOverlap(coreTitle, normalizedContent);
+    if (overlap >= 0.6) {
+      return false;
+    }
+  }
+  
+  // Check 4: Chapter number appears at the start of content
+  // e.g., title is "Chapter 47" and content starts with "47" or "Chapter 47"
+  const chapterNumMatch = normalizedTitle.match(/(?:chapter|ch\.?)\s*(\d+)/i) || normalizedTitle.match(/^(\d+)/);
+  if (chapterNumMatch) {
+    const chapterNum = chapterNumMatch[1];
+    // Check if content starts with this number (with some flexibility)
+    const contentStart = normalizedContent.slice(0, 50);
+    if (contentStart.match(new RegExp(`^\\s*(?:chapter|ch\\.?)?\\s*${chapterNum}\\b`, 'i'))) {
+      return false;
+    }
+  }
+  
+  // No match found - should prepend the title
+  return true;
+}
+
+/**
+ * Escape HTML entities in a string
+ */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 // HTTP fetch user agent (same as Playwright context)
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
@@ -1158,6 +1333,10 @@ export async function getChapter(chapterId: number, ttl?: number): Promise<Chapt
     });
     
     cleanContent = cloned.innerHTML;
+    
+    if (shouldPrependTitle(title, cleanContent)) {
+      cleanContent = `<h2 class="chapter-title-prepended">${escapeHtml(title)}</h2>\n${cleanContent}`;
+    }
   }
 
   // Convert nav URLs to proxy URLs
