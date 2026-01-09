@@ -132,6 +132,39 @@
   // REMOTE CONTROL
   // ============================================================
 
+  var REMOTE_STORAGE_KEY = 'tome_remote_token';
+  var REMOTE_WS_URL_KEY = 'tome_remote_ws_url';
+
+  function getStoredRemoteToken() {
+    try {
+      return sessionStorage.getItem(REMOTE_STORAGE_KEY);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function getStoredRemoteWsUrl() {
+    try {
+      return sessionStorage.getItem(REMOTE_WS_URL_KEY);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function saveRemoteSession(token, wsUrl) {
+    try {
+      sessionStorage.setItem(REMOTE_STORAGE_KEY, token);
+      sessionStorage.setItem(REMOTE_WS_URL_KEY, wsUrl);
+    } catch (e) {}
+  }
+
+  function clearRemoteSession() {
+    try {
+      sessionStorage.removeItem(REMOTE_STORAGE_KEY);
+      sessionStorage.removeItem(REMOTE_WS_URL_KEY);
+    } catch (e) {}
+  }
+
   function showRemoteIcon(show) {
     var icon = document.getElementById('remote-icon');
     if (icon) {
@@ -142,6 +175,29 @@
   function updateRemoteStatus(text) {
     var status = document.getElementById('remote-status');
     if (status) status.textContent = text;
+  }
+
+  function updateRemoteUI() {
+    var btn = document.getElementById('remote-btn');
+    var disableBtn = document.getElementById('remote-disable-btn');
+    var qrContainer = document.getElementById('remote-qr');
+    var reconnectPrompt = document.getElementById('remote-reconnect');
+
+    if (S.remoteWs && S.remoteWs.readyState === WebSocket.OPEN) {
+      if (btn) btn.textContent = 'New QR';
+      if (disableBtn) disableBtn.style.display = 'inline-block';
+      if (reconnectPrompt) reconnectPrompt.style.display = 'none';
+    } else if (S.remoteToken) {
+      if (btn) btn.textContent = 'Enable';
+      if (disableBtn) disableBtn.style.display = 'inline-block';
+    } else {
+      if (btn) btn.textContent = 'Enable';
+      if (disableBtn) disableBtn.style.display = 'none';
+      if (qrContainer) qrContainer.style.display = 'none';
+      if (reconnectPrompt) reconnectPrompt.style.display = 'none';
+    }
+
+    showRemoteIcon(S.remoteConnected);
   }
 
   function showRemoteDisconnected() {
@@ -167,11 +223,13 @@
       S.remoteWs = new WebSocket(wsUrl);
     } catch (e) {
       updateRemoteStatus('Connection failed');
+      updateRemoteUI();
       return;
     }
 
     S.remoteWs.onopen = function() {
       updateRemoteStatus('Connected - scan QR with phone');
+      updateRemoteUI();
     };
 
     S.remoteWs.onmessage = function(e) {
@@ -182,7 +240,8 @@
           showRemoteIcon(true);
           updateRemoteStatus('Phone connected!');
         } else if (data.type === 'controller_left') {
-          showRemoteDisconnected();
+          S.remoteConnected = false;
+          showRemoteIcon(false);
           updateRemoteStatus('Phone disconnected');
         } else if (data.action === 'next') {
           nextPage();
@@ -194,6 +253,7 @@
 
     S.remoteWs.onerror = function() {
       updateRemoteStatus('Connection error');
+      updateRemoteUI();
     };
 
     S.remoteWs.onclose = function() {
@@ -201,7 +261,76 @@
         showRemoteDisconnected();
       }
       S.remoteWs = null;
+      updateRemoteUI();
     };
+  }
+
+  function reconnectRemote() {
+    var storedToken = getStoredRemoteToken();
+    var storedWsUrl = getStoredRemoteWsUrl();
+    
+    if (!storedToken || !storedWsUrl) {
+      clearRemoteSession();
+      updateRemoteUI();
+      return;
+    }
+
+    updateRemoteStatus('Reconnecting...');
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/remote/validate/' + storedToken, true);
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4) {
+        if (xhr.status === 200) {
+          try {
+            var data = JSON.parse(xhr.responseText);
+            if (data.valid) {
+              S.remoteToken = storedToken;
+              var qrImg = document.getElementById('remote-qr-img');
+              if (qrImg) qrImg.src = '/api/remote/qr/' + storedToken;
+              var qrContainer = document.getElementById('remote-qr');
+              if (qrContainer) qrContainer.style.display = 'block';
+              var reconnectPrompt = document.getElementById('remote-reconnect');
+              if (reconnectPrompt) reconnectPrompt.style.display = 'none';
+              connectRemoteWs(storedWsUrl);
+              return;
+            }
+          } catch (e) {}
+        }
+        clearRemoteSession();
+        S.remoteToken = null;
+        updateRemoteStatus('Session expired');
+        updateRemoteUI();
+      }
+    };
+    xhr.send();
+  }
+
+  function disableRemote() {
+    var token = S.remoteToken || getStoredRemoteToken();
+    
+    if (S.remoteWs) {
+      try { S.remoteWs.close(); } catch (e) {}
+      S.remoteWs = null;
+    }
+
+    if (token) {
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/remote/invalidate/' + token, true);
+      xhr.send();
+    }
+
+    S.remoteToken = null;
+    S.remoteConnected = false;
+    clearRemoteSession();
+    
+    var qrContainer = document.getElementById('remote-qr');
+    if (qrContainer) qrContainer.style.display = 'none';
+    var reconnectPrompt = document.getElementById('remote-reconnect');
+    if (reconnectPrompt) reconnectPrompt.style.display = 'none';
+    
+    updateRemoteStatus('Remote disabled');
+    updateRemoteUI();
   }
 
   function enableRemote() {
@@ -218,24 +347,52 @@
     xhr.open('POST', '/api/remote/create', true);
     xhr.onreadystatechange = function() {
       if (xhr.readyState === 4) {
+        btn.disabled = false;
         if (xhr.status === 200) {
           try {
             var data = JSON.parse(xhr.responseText);
             S.remoteToken = data.token;
+            var wsUrl = data.wsUrl + '?role=reader';
+            saveRemoteSession(data.token, wsUrl);
             qrImg.src = data.qrUrl;
             qrContainer.style.display = 'block';
-            btn.textContent = 'New QR';
-            btn.disabled = false;
+            var reconnectPrompt = document.getElementById('remote-reconnect');
+            if (reconnectPrompt) reconnectPrompt.style.display = 'none';
             updateRemoteStatus('Waiting for connection...');
-            connectRemoteWs(data.wsUrl + '?role=reader');
+            connectRemoteWs(wsUrl);
+            updateRemoteUI();
           } catch (e) {
             btn.textContent = 'Error';
-            btn.disabled = false;
           }
         } else {
           btn.textContent = 'Error';
-          btn.disabled = false;
         }
+      }
+    };
+    xhr.send();
+  }
+
+  function checkSavedRemoteSession() {
+    var storedToken = getStoredRemoteToken();
+    if (!storedToken) return;
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/remote/validate/' + storedToken, true);
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4) {
+        if (xhr.status === 200) {
+          try {
+            var data = JSON.parse(xhr.responseText);
+            if (data.valid) {
+              S.remoteToken = storedToken;
+              var reconnectPrompt = document.getElementById('remote-reconnect');
+              if (reconnectPrompt) reconnectPrompt.style.display = 'block';
+              updateRemoteUI();
+              return;
+            }
+          } catch (e) {}
+        }
+        clearRemoteSession();
       }
     };
     xhr.send();
@@ -496,43 +653,42 @@
   }
 
   function attachHandlers() {
-    // Tap zones - toggle UI
     var tapTop = document.querySelector('.tap-zone-top');
     var tapBottom = document.querySelector('.tap-zone-bottom');
     if (tapTop) tapTop.onclick = toggleUI;
     if (tapBottom) tapBottom.onclick = toggleUI;
     
-    // Click zones - pagination
     var clickLeft = document.querySelector('.click-zone-left');
     var clickRight = document.querySelector('.click-zone-right');
     if (clickLeft) clickLeft.onclick = prevPage;
     if (clickRight) clickRight.onclick = nextPage;
     
-    // Settings modal
     var settingsBtn = document.querySelector('.settings-btn');
     var settingsClose = document.querySelector('.settings-close');
     
     if (settingsBtn) settingsBtn.onclick = openModal;
     if (settingsClose) settingsClose.onclick = closeModal;
     
-    // Click outside modal to close
     if (S.els.modal) {
       S.els.modal.onclick = function(e) {
         if (e.target === S.els.modal) closeModal();
       };
     }
     
-    // Font size buttons
     var fontDecrease = document.querySelector('.font-decrease');
     var fontIncrease = document.querySelector('.font-increase');
     if (fontDecrease) fontDecrease.onclick = function() { changeFontSize(-1); };
     if (fontIncrease) fontIncrease.onclick = function() { changeFontSize(1); };
     
-    // Remote control button
     var remoteBtn = document.getElementById('remote-btn');
     if (remoteBtn) remoteBtn.onclick = enableRemote;
+
+    var remoteDisableBtn = document.getElementById('remote-disable-btn');
+    if (remoteDisableBtn) remoteDisableBtn.onclick = disableRemote;
+
+    var remoteReconnectBtn = document.getElementById('remote-reconnect-btn');
+    if (remoteReconnectBtn) remoteReconnectBtn.onclick = reconnectRemote;
     
-    // Nav button clicks (event delegation)
     if (S.els.footer) {
       S.els.footer.onclick = function(e) {
         var target = e.target;
@@ -546,10 +702,8 @@
       };
     }
     
-    // Browser back/forward
     window.onpopstate = onPopState;
     
-    // Window resize (debounced)
     window.onresize = function() {
       if (S.resizeTimeout) clearTimeout(S.resizeTimeout);
       S.resizeTimeout = setTimeout(function() {
@@ -564,7 +718,6 @@
     detectFontSize();
     attachHandlers();
     
-    // Update font display
     var display = document.querySelector('.font-size-display');
     if (display) display.textContent = S.fontSizes[S.fontIndex] + 'px';
     
@@ -574,6 +727,8 @@
       if (initialPage > 0) goToPage(initialPage);
       preloadChapters();
     }, 200);
+
+    checkSavedRemoteSession();
   }
 
   // ============================================================

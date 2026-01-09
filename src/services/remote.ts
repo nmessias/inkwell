@@ -71,6 +71,7 @@ export function registerClient(
   
   if (role === "reader") {
     session.readers.add(ws);
+    notifyControllers(session, { type: "reader_connected" });
   } else {
     session.controllers.add(ws);
     notifyReaders(session, { type: "controller_joined" });
@@ -85,6 +86,7 @@ export function unregisterClient(ws: ServerWebSocket<RemoteWsData>): void {
   
   if (ws.data.role === "reader") {
     session.readers.delete(ws);
+    notifyControllers(session, { type: "reader_disconnected" });
   } else {
     session.controllers.delete(ws);
     notifyReaders(session, { type: "controller_left" });
@@ -100,6 +102,13 @@ export function broadcastToReaders(token: string, message: object): void {
 function notifyReaders(session: RemoteSession, message: object): void {
   const json = JSON.stringify(message);
   for (const ws of session.readers) {
+    try { ws.send(json); } catch {}
+  }
+}
+
+function notifyControllers(session: RemoteSession, message: object): void {
+  const json = JSON.stringify(message);
+  for (const ws of session.controllers) {
     try { ws.send(json); } catch {}
   }
 }

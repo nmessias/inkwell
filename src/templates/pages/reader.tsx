@@ -104,7 +104,15 @@ export function ReaderPage({
 
           <div class="settings-row">
             <label>Remote Control</label>
-            <button class="remote-btn" id="remote-btn">Enable</button>
+            <div class="remote-controls">
+              <button class="remote-btn" id="remote-btn">Enable</button>
+              <button class="remote-btn remote-disable" id="remote-disable-btn" style="display: none;">Disable</button>
+            </div>
+          </div>
+
+          <div class="remote-reconnect" id="remote-reconnect" style="display: none;">
+            <p>Previous remote session found</p>
+            <button class="remote-btn" id="remote-reconnect-btn">Tap to reconnect</button>
           </div>
           
           <div class="remote-qr" id="remote-qr" style="display: none;">

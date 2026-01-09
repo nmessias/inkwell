@@ -5,7 +5,7 @@ import { json, matchPath, URL_PATTERNS } from "../server";
 import { getChapter, getFiction } from "../services/scraper";
 import { getImageCache, setImageCache } from "../services/cache";
 import { CACHE_TTL } from "../config";
-import { createRemoteSession, isValidToken, generateQRCode } from "../services/remote";
+import { createRemoteSession, isValidToken, invalidateToken, generateQRCode } from "../services/remote";
 
 /**
  * Handle API routes
@@ -184,6 +184,19 @@ export async function handleApiRoute(
       console.error("[REMOTE] QR generation failed:", e.message);
       return new Response("QR generation failed", { status: 500 });
     }
+  }
+
+  const validateMatch = path.match(/^\/api\/remote\/validate\/([a-z0-9]+)$/);
+  if (validateMatch && method === "GET") {
+    const token = validateMatch[1];
+    return json({ valid: isValidToken(token) });
+  }
+
+  const invalidateMatch = path.match(/^\/api\/remote\/invalidate\/([a-z0-9]+)$/);
+  if (invalidateMatch && method === "POST") {
+    const token = invalidateMatch[1];
+    invalidateToken(token);
+    return json({ success: true });
   }
 
   return null;

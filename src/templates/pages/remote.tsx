@@ -156,6 +156,10 @@ export function RemotePage({
         var data = JSON.parse(e.data);
         if (data.type === 'connected') {
           setStatus('connected', 'Connected');
+        } else if (data.type === 'reader_connected') {
+          setStatus('connected', 'Reader reconnected');
+        } else if (data.type === 'reader_disconnected') {
+          setStatus('connecting', 'Reader navigating...');
         }
       } catch (err) {}
     };
