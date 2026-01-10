@@ -1,11 +1,16 @@
 /**
  * Routes index - main request router
  */
-import { html, serveStatic, parseReaderSettings, redirect } from "../server";
+import { html, serveStatic, parseReaderSettings, redirect, parseFormData } from "../server";
 import { handlePageRoute } from "./pages";
 import { handleApiRoute } from "./api";
-import { ErrorPage, LoginPage } from "../templates";
+import { ErrorPage, LoginPage, InvitePage, InviteExpiredPage } from "../templates";
 import { auth, getSession, AUTH_ENABLED } from "../lib/auth";
+import {
+  getInvitationByToken,
+  isInvitationValid,
+  markInvitationUsed,
+} from "../services/invitations";
 
 // Public paths that don't require authentication
 const PUBLIC_PATHS = [
@@ -18,6 +23,8 @@ const PUBLIC_PATHS = [
   "/api/ws-test",
   "/remote",
   "/api/remote",
+  "/invite",
+  "/api/invitations/qr",
 ];
 
 /**
@@ -58,9 +65,31 @@ export async function handleRequest(req: Request): Promise<Response> {
     }
   }
 
-  // Handle logout
   if (path === "/logout" && method === "POST") {
     return handleLogout(req);
+  }
+
+  const inviteMatch = path.match(/^\/invite\/([a-z0-9]+)$/);
+  if (inviteMatch) {
+    const token = inviteMatch[1];
+    const settings = parseReaderSettings(req.headers.get("cookie"));
+    
+    if (!isInvitationValid(token)) {
+      return html(InviteExpiredPage({ settings }), 410);
+    }
+    
+    const invitation = getInvitationByToken(token);
+    if (!invitation) {
+      return html(InviteExpiredPage({ settings }), 410);
+    }
+    
+    if (method === "GET") {
+      return html(InvitePage({ settings, token, email: invitation.email }));
+    }
+    
+    if (method === "POST") {
+      return handleInviteRegister(req, token, invitation.email);
+    }
   }
 
   // Handle theme toggle
@@ -69,12 +98,17 @@ export async function handleRequest(req: Request): Promise<Response> {
   }
 
   // Check session for protected routes
+  type Session = { user: { id: string; role?: string | null } } | null;
+  let session: Session = null;
   if (AUTH_ENABLED && !isPublicPath(path)) {
-    const session = await getSession(req);
+    session = await getSession(req) as Session;
     if (!session) {
       return redirect("/login");
     }
   }
+
+  const userId = session?.user?.id || "anonymous";
+  const isAdmin = session?.user?.role === "admin";
 
   const settings = parseReaderSettings(req.headers.get("cookie"));
 
@@ -97,11 +131,11 @@ export async function handleRequest(req: Request): Promise<Response> {
     }
 
     // Try API routes
-    const apiResponse = await handleApiRoute(req, path);
+    const apiResponse = await handleApiRoute(req, path, userId, isAdmin);
     if (apiResponse) return apiResponse;
 
     // Try page routes
-    const pageResponse = await handlePageRoute(req, path, url, settings);
+    const pageResponse = await handlePageRoute(req, path, url, settings, userId, isAdmin);
     if (pageResponse) return pageResponse;
 
     // 404
@@ -201,4 +235,51 @@ async function handleThemeToggle(req: Request): Promise<Response> {
     `reader_settings=${encodeURIComponent(JSON.stringify(newSettings))}; Path=/; SameSite=Lax; Max-Age=31536000`
   );
   return response;
+}
+
+async function handleInviteRegister(req: Request, token: string, email: string): Promise<Response> {
+  const settings = parseReaderSettings(req.headers.get("cookie"));
+  const form = await parseFormData(req);
+  
+  const username = form.username?.trim();
+  const password = form.password;
+  const confirmPassword = form.confirmPassword;
+  
+  if (!username || username.length < 3) {
+    return html(InvitePage({ settings, token, email, error: "Username must be at least 3 characters" }));
+  }
+  
+  if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
+    return html(InvitePage({ settings, token, email, error: "Username can only contain letters, numbers, underscores, and hyphens" }));
+  }
+  
+  if (!password || password.length < 8) {
+    return html(InvitePage({ settings, token, email, error: "Password must be at least 8 characters" }));
+  }
+  
+  if (password !== confirmPassword) {
+    return html(InvitePage({ settings, token, email, error: "Passwords do not match" }));
+  }
+  
+  try {
+    const response = await auth.api.signUpEmail({
+      body: {
+        email,
+        password,
+        name: username,
+        username,
+      },
+    });
+    
+    if (response?.user) {
+      markInvitationUsed(token, response.user.id);
+      return html(InvitePage({ settings, token, email, success: true }));
+    }
+    
+    return html(InvitePage({ settings, token, email, error: "Failed to create account" }));
+  } catch (error: any) {
+    console.error("Invite registration error:", error);
+    const message = error?.message || error?.body?.message || "Registration failed";
+    return html(InvitePage({ settings, token, email, error: message }));
+  }
 }

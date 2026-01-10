@@ -4,10 +4,8 @@
  */
 import { Database } from "bun:sqlite";
 import { mkdirSync, existsSync } from "fs";
-import type { Cookie } from "../types";
 import { CACHE_TTL } from "../config";
 
-// Ensure data directory exists
 const DATA_DIR = "./data";
 const DB_PATH = `${DATA_DIR}/sessions.db`;
 
@@ -17,7 +15,6 @@ if (!existsSync(DATA_DIR)) {
 
 const db = new Database(DB_PATH);
 
-// Initialize tables
 db.run(`
   CREATE TABLE IF NOT EXISTS cookies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,7 +32,6 @@ db.run(`
   )
 `);
 
-// Image cache table (stores binary data)
 db.run(`
   CREATE TABLE IF NOT EXISTS image_cache (
     url TEXT PRIMARY KEY,
@@ -44,50 +40,6 @@ db.run(`
     expires_at INTEGER NOT NULL
   )
 `);
-
-// ============ Cookie Operations ============
-
-export function getCookies(): Cookie[] {
-  return db.query("SELECT * FROM cookies").all() as Cookie[];
-}
-
-export function getCookie(name: string): Cookie | null {
-  return db.query("SELECT * FROM cookies WHERE name = ?").get(name) as Cookie | null;
-}
-
-export function setCookie(name: string, value: string): void {
-  db.run(
-    `INSERT INTO cookies (name, value, updated_at) 
-     VALUES (?, ?, unixepoch()) 
-     ON CONFLICT(name) DO UPDATE SET value = ?, updated_at = unixepoch()`,
-    [name, value, value]
-  );
-}
-
-export function deleteCookie(name: string): void {
-  db.run("DELETE FROM cookies WHERE name = ?", [name]);
-}
-
-export function clearCookies(): void {
-  db.run("DELETE FROM cookies");
-}
-
-// Get cookies formatted for Playwright
-export function getCookiesForPlaywright(): { name: string; value: string; domain: string; path: string }[] {
-  const cookies = getCookies();
-  return cookies.map(c => ({
-    name: c.name,
-    value: c.value,
-    domain: ".royalroad.com",
-    path: "/"
-  }));
-}
-
-// Check if session cookies are configured
-export function hasSessionCookies(): boolean {
-  const identity = getCookie(".AspNetCore.Identity.Application");
-  return !!identity;
-}
 
 // ============ Text Cache Operations ============
 

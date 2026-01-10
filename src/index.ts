@@ -7,6 +7,7 @@ import { handleRequest } from "./routes";
 import { initBrowser, closeBrowser } from "./services/scraper";
 import { startJobs, stopJobs } from "./services/jobs";
 import { seedAdminUser } from "./lib/auth";
+import { runMigrations } from "./lib/migrate";
 import {
   isValidToken,
   registerClient,
@@ -17,6 +18,9 @@ import {
 } from "./services/remote";
 
 console.log("Starting Tome...");
+
+// Run migrations first, then seed admin user
+runMigrations();
 
 seedAdminUser()
   .then(() => ENABLE_BROWSER ? initBrowser() : Promise.resolve())

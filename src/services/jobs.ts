@@ -1,15 +1,23 @@
 /**
  * Background jobs for cache warming
  */
-import { hasSessionCookies, isCached } from "./cache";
+import { isCached } from "./cache";
+import { hasRoyalRoadSession } from "./royalroad-credentials";
 import { CACHE_TTL, TOPLISTS } from "../config";
+import { Database } from "bun:sqlite";
+import { DB_PATH } from "../config";
 
-// Job state
 let jobsRunning = false;
 let followsJobInterval: ReturnType<typeof setInterval> | null = null;
 let toplistsJobInterval: ReturnType<typeof setInterval> | null = null;
 
-// Import scraper functions dynamically to avoid circular deps
+function getAdminUserId(): string | null {
+  const db = new Database(DB_PATH);
+  const admin = db.query("SELECT id FROM user WHERE role = 'admin' LIMIT 1").get() as { id: string } | null;
+  db.close();
+  return admin?.id ?? null;
+}
+
 async function getScraperFunctions() {
   const scraper = await import("./scraper");
   return {
@@ -24,7 +32,13 @@ async function getScraperFunctions() {
  * Warm cache for follows and their next chapters
  */
 async function warmFollowsCache(): Promise<void> {
-  if (!hasSessionCookies()) {
+  const adminUserId = getAdminUserId();
+  if (!adminUserId) {
+    console.log("[Job] Skipping follows cache - no admin user found");
+    return;
+  }
+  
+  if (!hasRoyalRoadSession(adminUserId)) {
     console.log("[Job] Skipping follows cache - no session cookies");
     return;
   }
@@ -34,16 +48,13 @@ async function warmFollowsCache(): Promise<void> {
   try {
     const { getFollows, getChapter, getFiction } = await getScraperFunctions();
     
-    // Check if follows list is already cached
     if (isCached("follows")) {
       console.log("[Job] Follows list already cached, skipping fetch");
     }
     
-    // Get follows (returns from cache if valid, otherwise fetches)
-    const follows = await getFollows();
+    const follows = await getFollows(adminUserId);
     console.log(`[Job] Got ${follows.length} followed fictions`);
     
-    // For each follow, cache the next chapter to read
     let cachedChapters = 0;
     let skippedChapters = 0;
     
@@ -51,11 +62,9 @@ async function warmFollowsCache(): Promise<void> {
       try {
         const fictionCacheKey = `fiction:${fiction.id}`;
         if (!isCached(fictionCacheKey)) {
-          // Use anonymous context (useAnon=true) to avoid tracking on Royal Road
-          const fictionDetails = await getFiction(fiction.id, CACHE_TTL.FICTION, true);
+          const fictionDetails = await getFiction(fiction.id, adminUserId, CACHE_TTL.FICTION);
           if (!fictionDetails?.chapters?.length) continue;
           
-          // Find next chapter to read
           let nextChapterId: number | undefined;
           
           if (fictionDetails.continueChapterId) {
@@ -75,13 +84,12 @@ async function warmFollowsCache(): Promise<void> {
             if (isCached(chapterCacheKey)) {
               skippedChapters++;
             } else {
-              await getChapter(nextChapterId, CACHE_TTL.CHAPTER);
+              await getChapter(nextChapterId, adminUserId, CACHE_TTL.CHAPTER);
               cachedChapters++;
               console.log(`[Job] Cached next chapter ${nextChapterId} for "${fiction.title}"`);
             }
           }
           
-          // Small delay to avoid hammering the server
           await new Promise(r => setTimeout(r, 1000));
         } else {
           skippedChapters++;
@@ -116,7 +124,7 @@ async function warmToplistsCache(): Promise<void> {
           skipped++;
           console.log(`[Job] Toplist already cached: ${toplist.name}`);
         } else {
-          await getToplist(toplist, CACHE_TTL.TOPLIST);
+          await getToplist(toplist, undefined, CACHE_TTL.TOPLIST);
           cached++;
           console.log(`[Job] Cached toplist: ${toplist.name}`);
           await new Promise(r => setTimeout(r, 2000));

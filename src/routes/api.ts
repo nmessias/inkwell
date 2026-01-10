@@ -6,14 +6,18 @@ import { getChapter, getFiction } from "../services/scraper";
 import { getImageCache, setImageCache } from "../services/cache";
 import { CACHE_TTL } from "../config";
 import { createRemoteSession, isValidToken, invalidateToken, generateQRCode } from "../services/remote";
+import {
+  createInvitation,
+  getPendingInvitations,
+  revokeInvitation,
+  getInvitationExpiryDays,
+} from "../services/invitations";
 
-/**
- * Handle API routes
- * Returns Response if matched, null otherwise
- */
 export async function handleApiRoute(
   req: Request,
-  path: string
+  path: string,
+  userId: string,
+  isAdmin: boolean
 ): Promise<Response | null> {
   const method = req.method;
 
@@ -23,8 +27,7 @@ export async function handleApiRoute(
     const id = parseInt(chapterApiMatch[0], 10);
 
     try {
-      // Use TTL to indicate this is for pre-caching (uses anonymous context)
-      const chapter = await getChapter(id, CACHE_TTL.CHAPTER);
+      const chapter = await getChapter(id, userId, CACHE_TTL.CHAPTER);
       if (!chapter) {
         return json({ error: "Chapter not found" }, 404);
       }
@@ -58,8 +61,7 @@ export async function handleApiRoute(
     const id = parseInt(chapterApiMatch[0], 10);
 
     try {
-      // Call getChapter WITHOUT TTL = uses authenticated context = triggers "mark as read"
-      await getChapter(id);
+      await getChapter(id, userId);
       return json({ success: true, chapterId: id });
     } catch (error: any) {
       console.error(`Error marking chapter ${id} as read:`, error);
@@ -197,6 +199,80 @@ export async function handleApiRoute(
     const token = invalidateMatch[1];
     invalidateToken(token);
     return json({ success: true });
+  }
+
+  if (path === "/api/invitations" && method === "GET") {
+    if (!isAdmin) {
+      return json({ error: "Admin access required" }, 403);
+    }
+    const invitations = getPendingInvitations();
+    return json({ invitations, expiryDays: getInvitationExpiryDays() });
+  }
+
+  if (path === "/api/invitations" && method === "POST") {
+    if (!isAdmin) {
+      return json({ error: "Admin access required" }, 403);
+    }
+    
+    try {
+      const body = await req.json();
+      const email = body.email?.trim();
+      
+      if (!email) {
+        return json({ error: "Email is required" }, 400);
+      }
+      
+      const invitation = createInvitation(email, userId);
+      const protocol = req.headers.get("x-forwarded-proto") || "http";
+      const host = req.headers.get("host") || "localhost:3000";
+      const inviteUrl = `${protocol}://${host}/invite/${invitation.token}`;
+      
+      return json({
+        invitation,
+        inviteUrl,
+        qrUrl: `/api/invitations/qr/${invitation.token}`,
+      });
+    } catch (error: any) {
+      console.error("Error creating invitation:", error);
+      return json({ error: error.message || "Failed to create invitation" }, 500);
+    }
+  }
+
+  const revokeMatch = path.match(/^\/api\/invitations\/([a-f0-9-]+)$/);
+  if (revokeMatch && method === "DELETE") {
+    if (!isAdmin) {
+      return json({ error: "Admin access required" }, 403);
+    }
+    
+    const invitationId = revokeMatch[1];
+    const revoked = revokeInvitation(invitationId);
+    
+    if (revoked) {
+      return json({ success: true });
+    } else {
+      return json({ error: "Invitation not found or already used" }, 404);
+    }
+  }
+
+  const inviteQrMatch = path.match(/^\/api\/invitations\/qr\/([a-z0-9]+)$/);
+  if (inviteQrMatch && method === "GET") {
+    const token = inviteQrMatch[1];
+    const protocol = req.headers.get("x-forwarded-proto") || "http";
+    const host = req.headers.get("host") || "localhost:3000";
+    const inviteUrl = `${protocol}://${host}/invite/${token}`;
+    
+    try {
+      const qrBuffer = await generateQRCode(inviteUrl);
+      return new Response(new Uint8Array(qrBuffer), {
+        headers: {
+          "Content-Type": "image/png",
+          "Cache-Control": "no-store",
+        },
+      });
+    } catch (e: any) {
+      console.error("[INVITE] QR generation failed:", e.message);
+      return new Response("QR generation failed", { status: 500 });
+    }
   }
 
   return null;

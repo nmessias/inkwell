@@ -23,28 +23,27 @@ export const auth = betterAuth({
   secret: BETTER_AUTH_SECRET || undefined,
   emailAndPassword: {
     enabled: true,
-    // Disable public signup - admin is seeded from env vars
-    disableSignUp: true,
   },
   plugins: [username()],
+  user: {
+    additionalFields: {
+      role: {
+        type: "string",
+        required: false,
+        defaultValue: "user",
+        input: false,
+      },
+    },
+  },
   session: {
-    // Sessions last ~1 year (within Better Auth's 400 day limit)
     expiresIn: 60 * 60 * 24 * 365,
-    // Refresh session expiry every day
     updateAge: 60 * 60 * 24,
   },
-  // Disable email verification (not needed for single admin user)
   emailVerification: {
-    sendVerificationEmail: async () => {
-      // No-op: we don't send emails
-    },
+    sendVerificationEmail: async () => {},
   },
 });
 
-/**
- * Seed the admin user from environment variables
- * Called on startup, creates user if not exists
- */
 export async function seedAdminUser(): Promise<void> {
   if (!AUTH_ENABLED) {
     console.log("Auth disabled (no AUTH_USERNAME/AUTH_PASSWORD set)");
@@ -52,18 +51,20 @@ export async function seedAdminUser(): Promise<void> {
   }
 
   try {
-    // Check if admin user already exists by username
     const existingUser = db
-      .query("SELECT id FROM user WHERE username = ?")
-      .get(AUTH_USERNAME);
+      .query("SELECT id, role FROM user WHERE username = ?")
+      .get(AUTH_USERNAME) as { id: string; role: string | null } | null;
 
     if (existingUser) {
-      console.log(`Admin user '${AUTH_USERNAME}' already exists`);
+      if (existingUser.role !== "admin") {
+        db.run("UPDATE user SET role = 'admin' WHERE id = ?", [existingUser.id]);
+        console.log(`Admin user '${AUTH_USERNAME}' role updated to 'admin'`);
+      } else {
+        console.log(`Admin user '${AUTH_USERNAME}' already exists`);
+      }
       return;
     }
 
-    // Create admin user using Better Auth's internal API
-    // We need to use the sign-up endpoint since createUser requires admin plugin
     const email = `${AUTH_USERNAME}@tome.local`;
     
     const response = await auth.api.signUpEmail({
@@ -76,12 +77,12 @@ export async function seedAdminUser(): Promise<void> {
     });
 
     if (response?.user) {
+      db.run("UPDATE user SET role = 'admin' WHERE id = ?", [response.user.id]);
       console.log(`Admin user '${AUTH_USERNAME}' created successfully`);
     } else {
       console.error("Failed to create admin user:", response);
     }
   } catch (error: any) {
-    // If signup is disabled and user doesn't exist, we need to create directly
     const errorMsg = error?.message || error?.body?.message || "";
     if (
       errorMsg.includes("Sign up is disabled") ||
@@ -95,28 +96,21 @@ export async function seedAdminUser(): Promise<void> {
   }
 }
 
-/**
- * Create admin user directly in the database
- * Fallback when signup is disabled
- */
 async function createAdminUserDirectly(): Promise<void> {
   const email = `${AUTH_USERNAME}@inkwell.local`;
   const userId = crypto.randomUUID();
   const now = Date.now();
 
-  // Hash password using Better Auth's password hasher
   const { hashPassword } = await import("better-auth/crypto");
   const hashedPassword = await hashPassword(AUTH_PASSWORD);
 
   try {
-    // Insert user (bun:sqlite uses .run() with array params)
     db.run(
-      `INSERT INTO user (id, email, emailVerified, name, username, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [userId, email, 1, AUTH_USERNAME, AUTH_USERNAME, now, now]
+      `INSERT INTO user (id, email, emailVerified, name, username, role, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [userId, email, 1, AUTH_USERNAME, AUTH_USERNAME, "admin", now, now]
     );
 
-    // Insert account (for email/password auth)
     db.run(
       `INSERT INTO account (id, userId, accountId, providerId, password, createdAt, updatedAt)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -145,6 +139,51 @@ export async function getSession(req: Request) {
   return auth.api.getSession({
     headers: req.headers,
   });
+}
+
+export async function createUser(
+  email: string,
+  username: string,
+  password: string,
+  role: "user" | "admin" = "user"
+): Promise<{ id: string } | null> {
+  const userId = crypto.randomUUID();
+  const now = Date.now();
+
+  const { hashPassword } = await import("better-auth/crypto");
+  const hashedPassword = await hashPassword(password);
+
+  try {
+    db.run(
+      `INSERT INTO user (id, email, emailVerified, name, username, role, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [userId, email, 1, username, username, role, now, now]
+    );
+
+    db.run(
+      `INSERT INTO account (id, userId, accountId, providerId, password, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        crypto.randomUUID(),
+        userId,
+        userId,
+        "credential",
+        hashedPassword,
+        now,
+        now,
+      ]
+    );
+
+    console.log(`User '${username}' created with role '${role}'`);
+    return { id: userId };
+  } catch (error: any) {
+    if (error?.message?.includes("UNIQUE constraint failed")) {
+      console.error(`User creation failed: username or email already exists`);
+    } else {
+      console.error("Failed to create user:", error);
+    }
+    return null;
+  }
 }
 
 export { AUTH_ENABLED };

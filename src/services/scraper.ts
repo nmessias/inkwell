@@ -4,7 +4,8 @@
  * Browser fallback can be disabled via ENABLE_BROWSER=false to save resources
  */
 import { parseHTML } from "linkedom";
-import { getCookiesForPlaywright, getCache, setCache, deleteCache, hasSessionCookies } from "./cache";
+import { getCache, setCache, deleteCache } from "./cache";
+import { getRoyalRoadCookiesForPlaywright, hasRoyalRoadSession } from "./royalroad-credentials";
 import { ROYAL_ROAD_BASE_URL, CACHE_TTL, SCRAPER_TIMEOUT, SCRAPER_SELECTOR_TIMEOUT, ENABLE_BROWSER } from "../config";
 
 // Playwright types (imported dynamically when ENABLE_BROWSER=true)
@@ -220,18 +221,18 @@ async function parallelLimit<T>(
 }
 
 /**
- * Get cookies formatted as HTTP Cookie header string
+ * Get cookies formatted as HTTP Cookie header string for a specific user
  */
-function getCookiesForFetch(): string {
-  const cookies = getCookiesForPlaywright();
-  return cookies.map(c => `${c.name}=${c.value}`).join("; ");
+function getCookiesForFetch(userId: string): string {
+  const cookies = getRoyalRoadCookiesForPlaywright(userId);
+  return cookies.map((c: { name: string; value: string }) => `${c.name}=${c.value}`).join("; ");
 }
 
 /**
  * Try fetching page via HTTP first (fast path, ~100ms)
  * Returns HTML content if successful, null if Cloudflare blocked or error
  */
-async function tryHttpFetch(url: string, includeCookies: boolean = true): Promise<{ content: string; finalUrl: string } | null> {
+async function tryHttpFetch(url: string, userId?: string): Promise<{ content: string; finalUrl: string } | null> {
   const startTime = Date.now();
   
   try {
@@ -241,8 +242,8 @@ async function tryHttpFetch(url: string, includeCookies: boolean = true): Promis
       "Accept-Language": "en-US,en;q=0.5",
     };
     
-    if (includeCookies) {
-      const cookieHeader = getCookiesForFetch();
+    if (userId) {
+      const cookieHeader = getCookiesForFetch(userId);
       if (cookieHeader) {
         headers["Cookie"] = cookieHeader;
       }
@@ -306,11 +307,6 @@ export async function initBrowser(): Promise<void> {
   
   if (browser) return;
 
-  if (!hasSessionCookies()) {
-    console.log("Skipping browser init - no session cookies configured");
-    return;
-  }
-
   console.log("Initializing Firefox browser...");
   const startTime = Date.now();
   
@@ -331,12 +327,11 @@ export async function initBrowser(): Promise<void> {
   });
   console.log(`Firefox launched in ${Date.now() - startTime}ms`);
 
-  await createContext();
   await createAnonContext();
   console.log("Browser initialized");
 }
 
-export async function createContext(): Promise<void> {
+export async function createContext(userId: string): Promise<void> {
   if (!ENABLE_BROWSER || !browser) {
     if (ENABLE_BROWSER) await initBrowser();
     return;
@@ -346,8 +341,8 @@ export async function createContext(): Promise<void> {
     await context.close();
   }
 
-  const cookies = getCookiesForPlaywright();
-  console.log(`Creating context with ${cookies.length} cookies: ${cookies.map(c => c.name).join(", ")}`);
+  const cookies = getRoyalRoadCookiesForPlaywright(userId);
+  console.log(`Creating context with ${cookies.length} cookies: ${cookies.map((c: { name: string }) => c.name).join(", ")}`);
   
   context = await browser.newContext({
     userAgent: USER_AGENT,
@@ -399,16 +394,17 @@ async function createAnonContext(): Promise<void> {
 async function getPage(
   url: string,
   waitForSelector?: string,
-  useAnon: boolean = false
+  userId?: string
 ): Promise<{ page: Page | null; content: string }> {
   const startTime = Date.now();
+  const useAnon = !userId;
   
-  if (!useAnon && !hasSessionCookies()) {
+  if (!useAnon && !hasRoyalRoadSession(userId)) {
     throw new Error("Session cookies not configured. Please set up your Royal Road cookies first.");
   }
 
   console.log(`[Scraper] Trying HTTP fetch for ${url} (${useAnon ? 'anon' : 'auth'})`);
-  const httpResult = await tryHttpFetch(url, !useAnon ? true : false);
+  const httpResult = await tryHttpFetch(url, userId);
   if (httpResult) {
     console.log(`[Scraper] HTTP fetch succeeded in ${Date.now() - startTime}ms total`);
     return { page: null, content: httpResult.content };
@@ -422,11 +418,22 @@ async function getPage(
   
   await ensureBrowser();
   
-  if (!context || !anonContext) {
+  if (!anonContext) {
     throw new Error("Browser contexts not initialized");
+  }
+  
+  if (!useAnon && userId) {
+    await createContext(userId);
+    if (!context) {
+      throw new Error("Failed to create authenticated browser context");
+    }
   }
 
   const ctx = useAnon ? anonContext : context;
+  if (!ctx) {
+    throw new Error("No browser context available");
+  }
+  
   const page = await ctx.newPage();
   
   await page.route('**/*', (route) => {
@@ -491,23 +498,22 @@ async function getPage(
  * Uses a lightweight HEAD request instead of opening a browser page
  * Returns the final URL after redirects, or null if failed
  */
-async function resolveRedirectUrl(url: string): Promise<string | null> {
-  if (!hasSessionCookies()) {
-    return null;
-  }
-
+async function resolveRedirectUrl(url: string, userId?: string): Promise<string | null> {
   try {
-    // Use fetch with redirect: "follow" to get the final URL
-    // HEAD request is lightweight - no body downloaded
+    const headers: Record<string, string> = {
+      "User-Agent": USER_AGENT,
+    };
+    
+    if (userId) {
+      headers["Cookie"] = getCookiesForFetch(userId);
+    }
+    
     const response = await fetch(url, {
       method: "HEAD",
       redirect: "follow",
-      headers: {
-        "User-Agent": USER_AGENT,
-      },
+      headers,
     });
     
-    // response.url contains the final URL after redirects
     return response.url;
   } catch (error) {
     console.error(`Failed to resolve redirect for ${url}:`, error);
@@ -632,18 +638,15 @@ function parseFictionList(html: string): Fiction[] {
 
 // ============ Scraper Functions ============
 
-/**
- * Get followed fictions
- */
-export async function getFollows(ttl: number = CACHE_TTL.FOLLOWS): Promise<FollowedFiction[]> {
-  const cacheKey = "follows";
+export async function getFollows(userId: string, ttl: number = CACHE_TTL.FOLLOWS): Promise<FollowedFiction[]> {
+  const cacheKey = `follows:${userId}`;
   const cached = getCache(cacheKey);
   if (cached) {
     console.log("Returning cached follows");
     return JSON.parse(cached);
   }
 
-  const { page, content } = await getPage(`${ROYAL_ROAD_BASE_URL}/my/follows`, ".fiction-list-item");
+  const { page, content } = await getPage(`${ROYAL_ROAD_BASE_URL}/my/follows`, ".fiction-list-item", userId);
   if (page) await page.close();
 
   const { document } = parseHTML(content);
@@ -766,8 +769,7 @@ export async function getFollows(ttl: number = CACHE_TTL.FOLLOWS): Promise<Follo
       if (!f._nextChapterUrl) return;
       
       try {
-        // HEAD request doesn't trigger "mark as read" on Royal Road
-        const finalUrl = await resolveRedirectUrl(f._nextChapterUrl);
+        const finalUrl = await resolveRedirectUrl(f._nextChapterUrl, userId);
         if (finalUrl) {
           const chapterIdMatch = finalUrl.match(/\/chapter\/(\d+)/);
           if (chapterIdMatch) {
@@ -778,7 +780,6 @@ export async function getFollows(ttl: number = CACHE_TTL.FOLLOWS): Promise<Follo
         console.error(`Failed to resolve next chapter URL for "${f.title}":`, e);
       }
       
-      // Clean up temporary field
       delete f._nextChapterUrl;
     });
     
@@ -792,11 +793,8 @@ export async function getFollows(ttl: number = CACHE_TTL.FOLLOWS): Promise<Follo
   return fictions;
 }
 
-/**
- * Get reading history - NO CACHING (always fresh)
- */
-export async function getHistory(): Promise<HistoryEntry[]> {
-  const { page, content } = await getPage(`${ROYAL_ROAD_BASE_URL}/my/history`, ".fiction-list");
+export async function getHistory(userId: string): Promise<HistoryEntry[]> {
+  const { page, content } = await getPage(`${ROYAL_ROAD_BASE_URL}/my/history`, ".fiction-list", userId);
   if (page) await page.close();
 
   const { document } = parseHTML(content);
@@ -849,10 +847,7 @@ export async function getHistory(): Promise<HistoryEntry[]> {
   return history;
 }
 
-/**
- * Get toplist fictions
- */
-export async function getToplist(toplist: ToplistType, ttl: number = CACHE_TTL.TOPLIST): Promise<Fiction[]> {
+export async function getToplist(toplist: ToplistType, userId?: string, ttl: number = CACHE_TTL.TOPLIST): Promise<Fiction[]> {
   const cacheKey = `toplist:${toplist.slug}`;
   const cached = getCache(cacheKey);
   if (cached) {
@@ -860,7 +855,7 @@ export async function getToplist(toplist: ToplistType, ttl: number = CACHE_TTL.T
     return JSON.parse(cached);
   }
 
-  const { page, content } = await getPage(toplist.url, ".fiction-list");
+  const { page, content } = await getPage(toplist.url, ".fiction-list", userId);
   if (page) await page.close();
 
   const fictions = parseFictionList(content);
@@ -872,9 +867,6 @@ export async function getToplist(toplist: ToplistType, ttl: number = CACHE_TTL.T
   return fictions;
 }
 
-/**
- * Get toplist from cache only (no fetch) - for non-blocking homepage
- */
 export function getToplistCached(toplist: ToplistType): Fiction[] | null {
   const cacheKey = `toplist:${toplist.slug}`;
   const cached = getCache(cacheKey);
@@ -884,12 +876,7 @@ export function getToplistCached(toplist: ToplistType): Fiction[] | null {
   return null;
 }
 
-/**
- * Get fiction details with chapters
- * When useAnon is true: use anonymous context (for pre-caching, won't trigger tracking)
- * When useAnon is false: use authenticated context (for live browsing)
- */
-export async function getFiction(id: number, ttl: number = CACHE_TTL.FICTION, useAnon: boolean = false): Promise<Fiction | null> {
+export async function getFiction(id: number, userId?: string, ttl: number = CACHE_TTL.FICTION): Promise<Fiction | null> {
   const cacheKey = `fiction:${id}`;
   const cached = getCache(cacheKey);
   if (cached) {
@@ -898,7 +885,7 @@ export async function getFiction(id: number, ttl: number = CACHE_TTL.FICTION, us
   }
 
   const url = `${ROYAL_ROAD_BASE_URL}/fiction/${id}`;
-  const { page, content } = await getPage(url, ".fic-title", useAnon);
+  const { page, content } = await getPage(url, ".fic-title", userId);
   
   // Try to get chapters from window.chapters variable (only works with browser)
   let chapters: Chapter[] = [];
@@ -1141,16 +1128,10 @@ export async function getFiction(id: number, ttl: number = CACHE_TTL.FICTION, us
   return fiction;
 }
 
-/**
- * Get chapter content
- * When ttl is provided: use anonymous context (for pre-caching, won't trigger "mark as read")
- * When ttl is NOT provided: use authenticated context (for live reading, triggers "mark as read")
- */
-export async function getChapter(chapterId: number, ttl?: number): Promise<ChapterContent | null> {
+export async function getChapter(chapterId: number, userId?: string, ttl?: number): Promise<ChapterContent | null> {
   const cacheKey = `chapter:${chapterId}`;
   const isPreCaching = ttl !== undefined;
   
-  // Only use cache if TTL is provided (for pre-warming)
   if (isPreCaching) {
     const cached = getCache(cacheKey);
     if (cached) {
@@ -1159,12 +1140,10 @@ export async function getChapter(chapterId: number, ttl?: number): Promise<Chapt
     }
   }
   
-  const useAnon = isPreCaching;
-  
   const { page, content } = await getPage(
     `${ROYAL_ROAD_BASE_URL}/fiction/0/chapter/${chapterId}`, 
     ".chapter-content",
-    useAnon
+    isPreCaching ? undefined : userId
   );
 
   // Variables for navigation and fiction info
@@ -1341,29 +1320,26 @@ export async function getChapter(chapterId: number, ttl?: number): Promise<Chapt
     fictionUrl: `/fiction/${fictionInfo.fictionId}`,
   };
 
-  // Cache the chapter
   setCache(cacheKey, JSON.stringify(result), CACHE_TTL.CHAPTER);
 
-  // Invalidate caches when reading live (read status changed on RR)
-  if (!isPreCaching) {
+  if (!isPreCaching && userId) {
     if (fictionInfo.fictionId) {
       const fictionCacheKey = `fiction:${fictionInfo.fictionId}`;
       if (deleteCache(fictionCacheKey)) {
         console.log(`Invalidated fiction cache: ${fictionCacheKey}`);
       }
     }
-    // Follows list shows unread status, so invalidate it too
-    if (deleteCache("follows")) {
+    const followsCacheKey = `follows:${userId}`;
+    if (deleteCache(followsCacheKey)) {
       console.log(`Invalidated follows cache`);
     }
   }
 
-  // Pre-cache next chapter when reading live
   if (nextChapterId && !isPreCaching) {
     console.log(`Pre-caching next chapter: ${nextChapterId}`);
     setTimeout(async () => {
       try {
-        await getChapter(nextChapterId, CACHE_TTL.CHAPTER);
+        await getChapter(nextChapterId, undefined, CACHE_TTL.CHAPTER);
       } catch (e) {
         console.error(`Failed to pre-cache chapter ${nextChapterId}:`, e);
       }
@@ -1373,13 +1349,10 @@ export async function getChapter(chapterId: number, ttl?: number): Promise<Chapt
   return result;
 }
 
-/**
- * Validate cookies by attempting to fetch follows
- */
-export async function validateCookies(): Promise<boolean> {
+export async function validateCookies(userId: string): Promise<boolean> {
   try {
-    await createContext();
-    const { page, content } = await getPage(`${ROYAL_ROAD_BASE_URL}/my/follows`);
+    await createContext(userId);
+    const { page, content } = await getPage(`${ROYAL_ROAD_BASE_URL}/my/follows`, undefined, userId);
     if (page) await page.close();
     
     return !content.includes('action="/account/login"') && !content.includes("Sign In");
@@ -1389,27 +1362,18 @@ export async function validateCookies(): Promise<boolean> {
   }
 }
 
-/**
- * Search for fictions
- */
-export async function searchFictions(query: string): Promise<Fiction[]> {
+export async function searchFictions(query: string, userId?: string): Promise<Fiction[]> {
   const encodedQuery = encodeURIComponent(query);
   const searchUrl = `${ROYAL_ROAD_BASE_URL}/fictions/search?title=${encodedQuery}`;
   
-  const { page, content } = await getPage(searchUrl, ".fiction-list-item");
+  const { page, content } = await getPage(searchUrl, ".fiction-list-item", userId);
   if (page) await page.close();
   
   return parseFictionList(content);
 }
 
-/**
- * Set a bookmark on Royal Road (follow, favorite, or read-later)
- * @param fictionId - The fiction ID
- * @param type - Bookmark type: "follow", "favorite", or "ril" (read later)
- * @param mark - true to add bookmark, false to remove
- * @param csrfToken - CSRF token from the fiction page
- */
 export async function setBookmark(
+  userId: string,
   fictionId: number,
   type: "follow" | "favorite" | "ril",
   mark: boolean,
@@ -1429,7 +1393,7 @@ export async function setBookmark(
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
-        "Cookie": getCookiesForFetch(),
+        "Cookie": getCookiesForFetch(userId),
         "User-Agent": USER_AGENT,
       },
       body: formData.toString(),

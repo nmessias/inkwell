@@ -75,4 +75,4 @@ export const NAV_LINKS = [
 ] as const;
 
 // App version for cache busting
-export const APP_VERSION = "1.1.0";
+export const APP_VERSION = "1.2.0";

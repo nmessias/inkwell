@@ -8,16 +8,28 @@ import type { CacheStats } from "../../services/cache";
 import type { ReaderSettings } from "../../config";
 import { DEFAULT_READER_SETTINGS, AUTH_ENABLED } from "../../config";
 
+export interface Invitation {
+  id: string;
+  email: string;
+  token: string;
+  expiresAt: number;
+  inviteUrl: string;
+}
+
 export function SettingsPage({
   message,
   isError,
   settings = DEFAULT_READER_SETTINGS,
   stats,
+  isAdmin = false,
+  invitations = [],
 }: {
   message?: string;
   isError?: boolean;
   settings?: ReaderSettings;
   stats?: CacheStats;
+  isAdmin?: boolean;
+  invitations?: Invitation[];
 }): JSX.Element {
   const totalSize = stats ? stats.totalSize + stats.imageSize : 0;
 
@@ -136,6 +148,80 @@ export function SettingsPage({
           <form method="POST" action="/logout">
             <button type="submit" class="btn btn-outline">Logout</button>
           </form>
+        </>
+      )}
+
+      {/* Invite Users - Admin Only */}
+      {isAdmin && (
+        <>
+          <SectionTitle>Invite Users</SectionTitle>
+
+          {/* Create Invitation Form */}
+          <div class="card">
+            <form method="POST" action="/settings/invitations">
+              <div class="form-group">
+                <label for="email">Email</label>
+                <input
+                  type="email"
+                  name="email"
+                  id="email"
+                  placeholder="user@example.com"
+                  required
+                />
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn">Create Invitation</button>
+              </div>
+            </form>
+          </div>
+
+          {/* Pending Invitations List */}
+          {invitations.length > 0 && (
+            <div class="card">
+              <div style="margin-bottom: 12px; font-weight: bold;">
+                Pending Invitations ({invitations.length})
+              </div>
+              {invitations.map((inv) => {
+                const expiresDate = new Date(inv.expiresAt * 1000);
+
+                return (
+                  <div style="border-top: 1px solid #000; padding-top: 12px; margin-top: 12px;">
+                    <div style="font-weight: bold;" safe>{inv.email}</div>
+                    <div style="font-size: 12px; margin-top: 4px;">
+                      Expires: <span safe>{expiresDate.toLocaleDateString()}</span>
+                    </div>
+
+                    <div class="form-group" style="margin-top: 8px; margin-bottom: 8px;">
+                      <label style="font-size: 12px;">Invite Link:</label>
+                      <input
+                        type="text"
+                        readonly
+                        value={inv.inviteUrl as any}
+                        style="font-size: 12px; padding: 8px;"
+                      />
+                    </div>
+
+                    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                      <img
+                        src={`/api/invitations/qr/${inv.token}`}
+                        alt="QR Code"
+                        style="width: 80px; height: 80px; border: 1px solid #000;"
+                      />
+                      <form method="POST" action={`/settings/invitations/revoke/${inv.id}`} style="margin: 0;">
+                        <button type="submit" class="btn btn-outline btn-small">Revoke</button>
+                      </form>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {invitations.length === 0 && (
+            <div class="card">
+              <div style="font-style: italic;">No pending invitations.</div>
+            </div>
+          )}
         </>
       )}
     </Layout>

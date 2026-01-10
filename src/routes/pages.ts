@@ -17,15 +17,17 @@ import {
 } from "../templates";
 import { ReaderPage } from "../templates/pages/reader";
 import {
-  setCookie,
-  clearCookies,
   clearCache,
   clearCacheByType,
   clearImageCache,
   clearExpiredCache,
-  hasSessionCookies,
   getCacheStats,
 } from "../services/cache";
+import {
+  hasRoyalRoadSession,
+  setRoyalRoadCookie,
+  clearRoyalRoadCookies,
+} from "../services/royalroad-credentials";
 import {
   getFollows,
   getHistory,
@@ -43,6 +45,11 @@ import { TOPLISTS } from "../config";
 import type { ReaderSettings } from "../config";
 import type { Fiction } from "../types";
 import { isValidToken } from "../services/remote";
+import {
+  createInvitation,
+  getPendingInvitations,
+  revokeInvitation,
+} from "../services/invitations";
 
 /**
  * Handle page routes
@@ -52,7 +59,9 @@ export async function handlePageRoute(
   req: Request,
   path: string,
   url: URL,
-  settings: ReaderSettings
+  settings: ReaderSettings,
+  userId: string,
+  isAdmin: boolean
 ): Promise<Response | null> {
   const method = req.method;
 
@@ -88,10 +97,8 @@ export async function handlePageRoute(
     });
   }
 
-  // Home - show cached toplists only (non-blocking)
-  // Toplists are populated by background jobs or by visiting /toplist/* pages
   if (path === "/" && method === "GET") {
-    const hasCookies = hasSessionCookies();
+    const hasCookies = hasRoyalRoadSession(userId);
     
     // Only show toplists if cookies are configured
     let risingStars: Fiction[] = [];
@@ -117,7 +124,14 @@ export async function handlePageRoute(
   // Settings - GET
   if (path === "/settings" && method === "GET") {
     const stats = getCacheStats();
-    return html(SettingsPage({ settings, stats }));
+    const invitations = isAdmin ? getPendingInvitations().map(inv => ({
+      id: inv.id,
+      email: inv.email,
+      token: inv.token,
+      expiresAt: inv.expiresAt,
+      inviteUrl: `${req.headers.get("x-forwarded-proto") || "http"}://${req.headers.get("host") || "localhost:3000"}/invite/${inv.token}`,
+    })) : [];
+    return html(SettingsPage({ settings, stats, isAdmin, invitations }));
   }
 
   // Settings - POST cookies
@@ -133,12 +147,12 @@ export async function handlePageRoute(
       );
     }
 
-    setCookie(".AspNetCore.Identity.Application", identity);
+    setRoyalRoadCookie(userId, ".AspNetCore.Identity.Application", identity);
     if (cfclearance) {
-      setCookie("cf_clearance", cfclearance);
+      setRoyalRoadCookie(userId, "cf_clearance", cfclearance);
     }
 
-    const valid = await validateCookies();
+    const valid = await validateCookies(userId);
     const stats = getCacheStats();
 
     if (valid) {
@@ -158,19 +172,50 @@ export async function handlePageRoute(
     }
   }
 
-  // Settings - Clear cookies
   if (path === "/settings/cookies/clear" && method === "GET") {
-    clearCookies();
+    clearRoyalRoadCookies(userId);
     clearCache();
-    await createContext();
+    await createContext(userId);
     const stats = getCacheStats();
-    return html(SettingsPage({ message: "Cookies and cache cleared.", isError: false, settings, stats }));
+    return html(SettingsPage({ message: "Cookies and cache cleared.", isError: false, settings, stats, isAdmin }));
   }
 
-  // Settings - Theme toggle
+  if (path === "/settings/invitations" && method === "POST") {
+    if (!isAdmin) {
+      return redirect("/settings");
+    }
+    
+    const form = await parseFormData(req);
+    const email = form.email?.trim();
+    const stats = getCacheStats();
+    
+    if (!email) {
+      const invitations = getPendingInvitations().map(inv => ({
+        id: inv.id,
+        email: inv.email,
+        token: inv.token,
+        expiresAt: inv.expiresAt,
+        inviteUrl: `${req.headers.get("x-forwarded-proto") || "http"}://${req.headers.get("host") || "localhost:3000"}/invite/${inv.token}`,
+      }));
+      return html(SettingsPage({ message: "Email is required", isError: true, settings, stats, isAdmin, invitations }));
+    }
+    
+    createInvitation(email, userId);
+    return redirect("/settings");
+  }
+
+  const revokeMatch = path.match(/^\/settings\/invitations\/revoke\/([a-f0-9-]+)$/);
+  if (revokeMatch && method === "POST") {
+    if (!isAdmin) {
+      return redirect("/settings");
+    }
+    
+    const invitationId = revokeMatch[1];
+    revokeInvitation(invitationId);
+    return redirect("/settings");
+  }
+
   if (path === "/settings/theme" && method === "POST") {
-    // Theme is handled by cookie in the main router
-    // Just redirect back to settings
     return new Response(null, {
       status: 303,
       headers: { Location: "/settings" },
@@ -218,9 +263,8 @@ export async function handlePageRoute(
     });
   }
 
-  // Follows
   if (path === "/follows" && method === "GET") {
-    if (!hasSessionCookies()) {
+    if (!hasRoyalRoadSession(userId)) {
       return html(
         ErrorPage({ title: "Not Configured", message: "Please configure your session cookies first.", retryUrl: "/settings", settings })
       );
@@ -228,7 +272,7 @@ export async function handlePageRoute(
 
     try {
       const page = parseInt(url.searchParams.get("page") || "1", 10);
-      const fictions = await getFollows();
+      const fictions = await getFollows(userId);
       return html(FollowsPage({ fictions, page, settings }));
     } catch (error: any) {
       console.error("Error fetching follows:", error);
@@ -243,9 +287,8 @@ export async function handlePageRoute(
     }
   }
 
-  // History
   if (path === "/history" && method === "GET") {
-    if (!hasSessionCookies()) {
+    if (!hasRoyalRoadSession(userId)) {
       return html(
         ErrorPage({ title: "Not Configured", message: "Please configure your session cookies first.", retryUrl: "/settings", settings })
       );
@@ -253,7 +296,7 @@ export async function handlePageRoute(
 
     try {
       const page = parseInt(url.searchParams.get("page") || "1", 10);
-      const history = await getHistory();
+      const history = await getHistory(userId);
       return html(HistoryPage({ history, page, settings }));
     } catch (error: any) {
       console.error("Error fetching history:", error);
@@ -282,7 +325,7 @@ export async function handlePageRoute(
       return html(SearchPage({ settings }));
     }
 
-    if (!hasSessionCookies()) {
+    if (!hasRoyalRoadSession(userId)) {
       return html(
         ErrorPage({ title: "Not Configured", message: "Please configure your session cookies first.", retryUrl: "/settings", settings })
       );
@@ -309,7 +352,7 @@ export async function handlePageRoute(
       return html(ErrorPage({ title: "Not Found", message: `Toplist "${slug}" not found.`, settings }), 404);
     }
 
-    if (!hasSessionCookies()) {
+    if (!hasRoyalRoadSession(userId)) {
       return html(
         ErrorPage({ title: "Not Configured", message: "Please configure your session cookies first.", retryUrl: "/settings", settings })
       );
@@ -337,7 +380,7 @@ export async function handlePageRoute(
   if (bookmarkMatch && method === "POST") {
     const id = parseInt(bookmarkMatch[1], 10);
     
-    if (!hasSessionCookies()) {
+    if (!hasRoyalRoadSession(userId)) {
       return redirect(`/fiction/${id}?error=${encodeURIComponent("Not logged in")}`);
     }
     
@@ -351,7 +394,7 @@ export async function handlePageRoute(
         return redirect(`/fiction/${id}?error=${encodeURIComponent("Invalid request")}`);
       }
       
-      const result = await setBookmark(id, type, mark, csrfToken);
+      const result = await setBookmark(userId, id, type, mark, csrfToken);
       
       if (result.success) {
         return redirect(`/fiction/${id}`);
@@ -371,7 +414,7 @@ export async function handlePageRoute(
     const page = parseInt(url.searchParams.get("page") || "1", 10);
     const error = url.searchParams.get("error") || undefined;
 
-    if (!hasSessionCookies()) {
+    if (!hasRoyalRoadSession(userId)) {
       return html(
         ErrorPage({ title: "Not Configured", message: "Please configure your session cookies first.", retryUrl: "/settings", settings })
       );
@@ -401,14 +444,14 @@ export async function handlePageRoute(
   if (chapterMatch && method === "GET") {
     const id = parseInt(chapterMatch[0], 10);
 
-    if (!hasSessionCookies()) {
+    if (!hasRoyalRoadSession(userId)) {
       return html(
         ErrorPage({ title: "Not Configured", message: "Please configure your session cookies first.", retryUrl: "/settings", settings })
       );
     }
 
     try {
-      const chapter = await getChapter(id);
+      const chapter = await getChapter(id, userId);
       if (!chapter) {
         return html(ErrorPage({ title: "Not Found", message: `Chapter ${id} not found.`, settings }), 404);
       }
