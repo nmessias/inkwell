@@ -124,8 +124,275 @@
     saveTimeout: null,
     fontSizes: [14, 16, 18, 20, 22, 24, 28, 32],
     fontIndex: 2,
-    isDark: false
+    lineHeights: [1.4, 1.6, 1.8, 2.0, 2.2],
+    lineIndex: 1,
+    isDark: false,
+    injectedStyles: [],
+    remoteWs: null,
+    remoteToken: null,
+    remoteConnected: false
   };
+
+  // ============================================================
+  // REMOTE CONTROL
+  // ============================================================
+
+  var REMOTE_STORAGE_KEY = 'tome_remote_token';
+  var REMOTE_WS_URL_KEY = 'tome_remote_ws_url';
+
+  function getStoredRemoteToken() {
+    try {
+      return sessionStorage.getItem(REMOTE_STORAGE_KEY);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function getStoredRemoteWsUrl() {
+    try {
+      return sessionStorage.getItem(REMOTE_WS_URL_KEY);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function saveRemoteSession(token, wsUrl) {
+    try {
+      sessionStorage.setItem(REMOTE_STORAGE_KEY, token);
+      sessionStorage.setItem(REMOTE_WS_URL_KEY, wsUrl);
+    } catch (e) {}
+  }
+
+  function clearRemoteSession() {
+    try {
+      sessionStorage.removeItem(REMOTE_STORAGE_KEY);
+      sessionStorage.removeItem(REMOTE_WS_URL_KEY);
+    } catch (e) {}
+  }
+
+  function showRemoteIcon(show) {
+    var icon = document.getElementById('remote-icon');
+    if (icon) {
+      icon.style.display = show ? 'inline' : 'none';
+    }
+  }
+
+  function updateRemoteStatus(text) {
+    var status = document.getElementById('remote-status');
+    if (status) status.textContent = text;
+  }
+
+  function updateRemoteUI() {
+    var btn = document.getElementById('remote-btn');
+    var disableBtn = document.getElementById('remote-disable-btn');
+    var qrContainer = document.getElementById('remote-qr');
+    var reconnectPrompt = document.getElementById('remote-reconnect');
+
+    if (S.remoteWs && S.remoteWs.readyState === WebSocket.OPEN) {
+      if (btn) btn.textContent = 'New QR';
+      if (disableBtn) disableBtn.style.display = 'inline-block';
+      if (reconnectPrompt) reconnectPrompt.style.display = 'none';
+    } else if (S.remoteToken) {
+      if (btn) btn.textContent = 'Enable';
+      if (disableBtn) disableBtn.style.display = 'inline-block';
+    } else {
+      if (btn) btn.textContent = 'Enable';
+      if (disableBtn) disableBtn.style.display = 'none';
+      if (qrContainer) qrContainer.style.display = 'none';
+      if (reconnectPrompt) reconnectPrompt.style.display = 'none';
+    }
+
+    showRemoteIcon(S.remoteConnected);
+  }
+
+  function showRemoteDisconnected() {
+    S.remoteConnected = false;
+    showRemoteIcon(false);
+  }
+
+  function connectRemoteWs(wsUrl) {
+    if (S.remoteWs) {
+      try { S.remoteWs.close(); } catch (e) {}
+    }
+
+    try {
+      S.remoteWs = new WebSocket(wsUrl);
+    } catch (e) {
+      updateRemoteStatus('Connection failed');
+      updateRemoteUI();
+      return;
+    }
+
+    S.remoteWs.onopen = function() {
+      updateRemoteStatus('Connected - scan QR with phone');
+      updateRemoteUI();
+    };
+
+    S.remoteWs.onmessage = function(e) {
+      try {
+        var data = JSON.parse(e.data);
+        if (data.type === 'controller_joined') {
+          S.remoteConnected = true;
+          showRemoteIcon(true);
+          updateRemoteStatus('Phone connected!');
+        } else if (data.type === 'controller_left') {
+          S.remoteConnected = false;
+          showRemoteIcon(false);
+          updateRemoteStatus('Phone disconnected');
+        } else if (data.action === 'next') {
+          nextPage();
+        } else if (data.action === 'prev') {
+          prevPage();
+        }
+      } catch (err) {}
+    };
+
+    S.remoteWs.onerror = function() {
+      updateRemoteStatus('Connection error');
+      updateRemoteUI();
+    };
+
+    S.remoteWs.onclose = function() {
+      if (S.remoteConnected) {
+        showRemoteDisconnected();
+      }
+      S.remoteWs = null;
+      updateRemoteUI();
+    };
+  }
+
+  function reconnectRemote() {
+    var storedToken = getStoredRemoteToken();
+    var storedWsUrl = getStoredRemoteWsUrl();
+
+    if (!storedToken || !storedWsUrl) {
+      clearRemoteSession();
+      updateRemoteUI();
+      return;
+    }
+
+    updateRemoteStatus('Reconnecting...');
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/remote/validate/' + storedToken, true);
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4) {
+        if (xhr.status === 200) {
+          try {
+            var data = JSON.parse(xhr.responseText);
+            if (data.valid) {
+              S.remoteToken = storedToken;
+              var qrImg = document.getElementById('remote-qr-img');
+              if (qrImg) qrImg.src = '/api/remote/qr/' + storedToken;
+              var qrContainer = document.getElementById('remote-qr');
+              if (qrContainer) qrContainer.style.display = 'block';
+              var reconnectPrompt = document.getElementById('remote-reconnect');
+              if (reconnectPrompt) reconnectPrompt.style.display = 'none';
+              connectRemoteWs(storedWsUrl);
+              return;
+            }
+          } catch (e) {}
+        }
+        clearRemoteSession();
+        S.remoteToken = null;
+        updateRemoteStatus('Session expired');
+        updateRemoteUI();
+      }
+    };
+    xhr.send();
+  }
+
+  function disableRemote() {
+    var token = S.remoteToken || getStoredRemoteToken();
+
+    if (S.remoteWs) {
+      try { S.remoteWs.close(); } catch (e) {}
+      S.remoteWs = null;
+    }
+
+    if (token) {
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/remote/invalidate/' + token, true);
+      xhr.send();
+    }
+
+    S.remoteToken = null;
+    S.remoteConnected = false;
+    clearRemoteSession();
+
+    var qrContainer = document.getElementById('remote-qr');
+    if (qrContainer) qrContainer.style.display = 'none';
+    var reconnectPrompt = document.getElementById('remote-reconnect');
+    if (reconnectPrompt) reconnectPrompt.style.display = 'none';
+
+    updateRemoteStatus('Remote disabled');
+    updateRemoteUI();
+  }
+
+  function enableRemote() {
+    var btn = document.getElementById('remote-btn');
+    var qrContainer = document.getElementById('remote-qr');
+    var qrImg = document.getElementById('remote-qr-img');
+
+    if (!btn || !qrContainer || !qrImg) return;
+
+    btn.textContent = 'Loading...';
+    btn.disabled = true;
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/remote/create', true);
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4) {
+        btn.disabled = false;
+        if (xhr.status === 200) {
+          try {
+            var data = JSON.parse(xhr.responseText);
+            S.remoteToken = data.token;
+            var wsUrl = data.wsUrl + '?role=reader';
+            saveRemoteSession(data.token, wsUrl);
+            qrImg.src = data.qrUrl;
+            qrContainer.style.display = 'block';
+            var reconnectPrompt = document.getElementById('remote-reconnect');
+            if (reconnectPrompt) reconnectPrompt.style.display = 'none';
+            updateRemoteStatus('Waiting for connection...');
+            connectRemoteWs(wsUrl);
+            updateRemoteUI();
+          } catch (e) {
+            btn.textContent = 'Error';
+          }
+        } else {
+          btn.textContent = 'Error';
+        }
+      }
+    };
+    xhr.send();
+  }
+
+  function checkSavedRemoteSession() {
+    var storedToken = getStoredRemoteToken();
+    if (!storedToken) return;
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/remote/validate/' + storedToken, true);
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4) {
+        if (xhr.status === 200) {
+          try {
+            var data = JSON.parse(xhr.responseText);
+            if (data.valid) {
+              S.remoteToken = storedToken;
+              var reconnectPrompt = document.getElementById('remote-reconnect');
+              if (reconnectPrompt) reconnectPrompt.style.display = 'block';
+              updateRemoteUI();
+              return;
+            }
+          } catch (e) {}
+        }
+        clearRemoteSession();
+      }
+    };
+    xhr.send();
+  }
 
   function $(selector) {
     return document.querySelector(selector);
@@ -138,7 +405,11 @@
   }
 
   function saveSettings() {
-    var settings = JSON.stringify({ font: S.fontSizes[S.fontIndex], dark: S.isDark });
+    var settings = JSON.stringify({
+      font: S.fontSizes[S.fontIndex],
+      dark: S.isDark,
+      lineHeight: S.lineHeights[S.lineIndex]
+    });
     setCookie('reader_settings', settings);
   }
 
@@ -261,6 +532,51 @@
     if (newIndex >= 0 && newIndex < S.fontSizes.length) {
       S.fontIndex = newIndex;
       applyFontSize();
+    }
+  }
+
+  function applyLineHeight() {
+    if (!S.rendition) return;
+
+    var lh = S.lineHeights[S.lineIndex];
+    
+    S.injectedStyles.forEach(function(styleEl) {
+      if (styleEl && styleEl.parentNode) {
+        styleEl.textContent = getInjectedCss();
+      }
+    });
+
+    var display = $('.line-height-display');
+    if (display) display.textContent = lh.toFixed(1);
+
+    saveSettings();
+  }
+
+  function getInjectedCss() {
+    var lh = S.lineHeights[S.lineIndex];
+    return "@font-face { " +
+      "font-family: 'Literata'; " +
+      "src: url('/public/fonts/Literata-Variable.ttf') format('truetype'); " +
+      "font-weight: 200 900; " +
+      "font-style: normal; " +
+    "} " +
+    "@font-face { " +
+      "font-family: 'Literata'; " +
+      "src: url('/public/fonts/Literata-Italic-Variable.ttf') format('truetype'); " +
+      "font-weight: 200 900; " +
+      "font-style: italic; " +
+    "} " +
+    "body, p, div, span, h1, h2, h3, h4, h5, h6 { " +
+      "font-family: 'Literata', Georgia, serif !important; " +
+      "line-height: " + lh + " !important; " +
+    "}";
+  }
+
+  function changeLineHeight(delta) {
+    var newIndex = S.lineIndex + delta;
+    if (newIndex >= 0 && newIndex < S.lineHeights.length) {
+      S.lineIndex = newIndex;
+      applyLineHeight();
     }
   }
 
@@ -427,12 +743,21 @@
       flow: 'paginated'
     });
 
+    S.rendition.hooks.content.register(function(contents) {
+      var head = contents.document.getElementsByTagName('head')[0];
+      if (head) {
+        var style = contents.document.createElement('style');
+        style.setAttribute('type', 'text/css');
+        style.textContent = getInjectedCss();
+        head.appendChild(style);
+        S.injectedStyles.push(style);
+      }
+    });
+
     S.rendition.themes.fontSize(S.fontSizes[S.fontIndex] + 'px');
 
     S.rendition.themes.register('default', {
       'body': {
-        'font-family': "'Literata', Georgia, serif !important",
-        'line-height': '1.6 !important',
         'padding': '20px !important'
       },
       'p': {
@@ -509,6 +834,20 @@
       }
     }
 
+    var wrapper = $('.epub-wrapper');
+    if (wrapper) {
+      var lhAttr = wrapper.getAttribute('data-line-height');
+      if (lhAttr) {
+        var lh = parseFloat(lhAttr);
+        for (var j = 0; j < S.lineHeights.length; j++) {
+          if (Math.abs(S.lineHeights[j] - lh) < 0.01) {
+            S.lineIndex = j;
+            break;
+          }
+        }
+      }
+    }
+
     updateThemeButtons();
   }
 
@@ -545,10 +884,24 @@
     if (fontDecrease) fontDecrease.onclick = function() { changeFontSize(-1); };
     if (fontIncrease) fontIncrease.onclick = function() { changeFontSize(1); };
 
+    var lineDecrease = $('.line-decrease');
+    var lineIncrease = $('.line-increase');
+    if (lineDecrease) lineDecrease.onclick = function() { changeLineHeight(-1); };
+    if (lineIncrease) lineIncrease.onclick = function() { changeLineHeight(1); };
+
     var lightBtn = $('.theme-light');
     var darkBtn = $('.theme-dark');
     if (lightBtn) lightBtn.onclick = function() { setTheme('light'); };
     if (darkBtn) darkBtn.onclick = function() { setTheme('dark'); };
+
+    var remoteBtn = document.getElementById('remote-btn');
+    if (remoteBtn) remoteBtn.onclick = enableRemote;
+
+    var remoteDisableBtn = document.getElementById('remote-disable-btn');
+    if (remoteDisableBtn) remoteDisableBtn.onclick = disableRemote;
+
+    var remoteReconnectBtn = document.getElementById('remote-reconnect-btn');
+    if (remoteReconnectBtn) remoteReconnectBtn.onclick = reconnectRemote;
 
     var deleteCancel = $('.delete-cancel');
     var deleteModal = $('.delete-modal');
@@ -585,8 +938,13 @@
     attachHandlers();
     initEpub();
 
-    var display = $('.font-size-display');
-    if (display) display.textContent = S.fontSizes[S.fontIndex] + 'px';
+    var fontDisplay = $('.font-size-display');
+    if (fontDisplay) fontDisplay.textContent = S.fontSizes[S.fontIndex] + 'px';
+
+    var lineDisplay = $('.line-height-display');
+    if (lineDisplay) lineDisplay.textContent = S.lineHeights[S.lineIndex].toFixed(1);
+
+    checkSavedRemoteSession();
   }
 
   if (document.readyState === 'loading') {

@@ -5,16 +5,27 @@
 
 @font-face {
   font-family: 'Literata';
-  src: url('/public/fonts/Literata-Variable.ttf') format('truetype');
-  font-weight: 200 900;
+  src: url('/public/fonts/Literata-Regular.woff2') format('woff2'),
+       url('/public/fonts/Literata-Variable.ttf') format('truetype');
+  font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
   font-family: 'Literata';
-  src: url('/public/fonts/Literata-Italic-Variable.ttf') format('truetype');
-  font-weight: 200 900;
+  src: url('/public/fonts/Literata-Bold.woff2') format('woff2'),
+       url('/public/fonts/Literata-Variable.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Literata';
+  src: url('/public/fonts/Literata-Italic.woff2') format('woff2'),
+       url('/public/fonts/Literata-Italic-Variable.ttf') format('truetype');
+  font-weight: 400;
   font-style: italic;
   font-display: swap;
 }
@@ -128,7 +139,7 @@ a:visited {
 }
 
 .reader-content {
-  font-family: 'Literata', Georgia, serif;
+  font-family: "Bookerly", 'Literata', Georgia, serif;
   font-weight: 400;
   column-width: 95vw;
   column-gap: 5vw;
@@ -140,6 +151,11 @@ a:visited {
   overflow-x: scroll;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  visibility: hidden;
+}
+
+.reader-content.ready {
+  visibility: visible;
 }
 
 .reader-content::-webkit-scrollbar {

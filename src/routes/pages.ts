@@ -495,6 +495,7 @@ export async function handlePageRoute(
   const chapterMatch = matchPath(path, URL_PATTERNS.chapter);
   if (chapterMatch && method === "GET") {
     const id = parseInt(chapterMatch[0], 10);
+    const initialPage = Math.max(1, parseInt(url.searchParams.get("p") || "1", 10));
 
     if (!hasRoyalRoadSession(userId)) {
       return html(
@@ -507,7 +508,7 @@ export async function handlePageRoute(
       if (!chapter) {
         return html(ErrorPage({ title: "Not Found", message: `Chapter ${id} not found.`, settings }), 404);
       }
-      return html(ReaderPage({ chapter, settings }));
+      return html(ReaderPage({ chapter, settings, initialPage }));
     } catch (error: any) {
       console.error(`Error fetching chapter ${id}:`, error);
       return html(

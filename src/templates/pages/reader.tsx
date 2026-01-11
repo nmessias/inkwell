@@ -13,9 +13,11 @@ import { DEFAULT_READER_SETTINGS } from "../../config";
 export function ReaderPage({
   chapter,
   settings = DEFAULT_READER_SETTINGS,
+  initialPage = 1,
 }: {
   chapter: ChapterContent;
   settings?: ReaderSettings;
+  initialPage?: number;
 }): JSX.Element {
   // Extract chapter IDs from URLs
   const prevChapterId = chapter.prevChapterUrl
@@ -30,7 +32,7 @@ export function ReaderPage({
   const fontSizeDisplay = settings.font + "px";
 
   return (
-    <ReaderLayout title={chapter.title} settings={settings}>
+    <ReaderLayout title={chapter.title} settings={settings} initialPage={initialPage}>
       <header class="reader-header">
         <div class="header-left">
           <span class="remote-icon" id="remote-icon">Remote</span>

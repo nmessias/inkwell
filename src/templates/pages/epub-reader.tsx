@@ -11,6 +11,7 @@ export function EpubReaderPage({
 }): JSX.Element {
   const bodyClass = settings.dark ? "dark-mode" : "";
   const fontSizeStyle = `font-size: ${settings.font}px;`;
+  const lineHeight = settings.lineHeight || 1.6;
 
   return (
     <>
@@ -25,6 +26,7 @@ export function EpubReaderPage({
         <body class={bodyClass || undefined}>
           <header class="epub-header">
             <div class="header-left">
+              <span class="remote-icon" id="remote-icon" style="display: none;">Remote</span>
               <a href="/library" class="back-btn">← Library</a>
               <h1 class="book-title" safe>{book.title}</h1>
               {book.author && <span class="book-author" safe>{book.author as string}</span>}
@@ -40,6 +42,7 @@ export function EpubReaderPage({
             data-book-id={book.id}
             data-cfi={book.cfi || ""}
             data-progress={book.progress}
+            data-line-height={lineHeight}
           >
             <div class="tap-zone-top"></div>
             <div class="tap-zone-bottom"></div>
@@ -73,12 +76,40 @@ export function EpubReaderPage({
                 </div>
               </div>
               <div class="settings-row">
+                <label>Line Spacing</label>
+                <div class="line-controls">
+                  <button class="line-decrease">-</button>
+                  <span class="line-height-display" safe>{lineHeight.toFixed(1)}</span>
+                  <button class="line-increase">+</button>
+                </div>
+              </div>
+              <div class="settings-row">
                 <label>Theme</label>
                 <div class="theme-controls">
                   <button class="theme-btn theme-light" data-theme="light">Light</button>
                   <button class="theme-btn theme-dark" data-theme="dark">Dark</button>
                 </div>
               </div>
+
+              <div class="settings-row">
+                <label>Remote Control</label>
+                <div class="remote-controls">
+                  <button class="remote-btn" id="remote-btn">Enable</button>
+                  <button class="remote-btn remote-disable" id="remote-disable-btn" style="display: none;">Disable</button>
+                </div>
+              </div>
+
+              <div class="remote-reconnect" id="remote-reconnect" style="display: none;">
+                <p>Previous remote session found</p>
+                <button class="remote-btn" id="remote-reconnect-btn">Tap to reconnect</button>
+              </div>
+
+              <div class="remote-qr" id="remote-qr" style="display: none;">
+                <p style="margin-bottom: 10px; font-size: 14px;">Scan with your phone:</p>
+                <img id="remote-qr-img" alt="QR Code" style="width: 200px; height: 200px; background: #eee;" />
+                <p class="remote-status" id="remote-status">Waiting for connection...</p>
+              </div>
+
               <button class="settings-close">Close</button>
             </div>
           </div>

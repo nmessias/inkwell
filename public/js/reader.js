@@ -721,13 +721,13 @@
     var display = document.querySelector('.font-size-display');
     if (display) display.textContent = S.fontSizes[S.fontIndex] + 'px';
     
-    setTimeout(function() {
-      updatePages();
-      var initialPage = getInitialPage();
-      if (initialPage > 0) goToPage(initialPage);
-      preloadChapters();
-    }, 200);
-
+    updatePages();
+    var initialPage = window.__INITIAL_PAGE__ ? window.__INITIAL_PAGE__ - 1 : getInitialPage();
+    if (initialPage > 0) goToPage(initialPage);
+    
+    S.els.content.classList.add('ready');
+    
+    preloadChapters();
     checkSavedRemoteSession();
   }
 
@@ -735,10 +735,10 @@
   // BOOTSTRAP
   // ============================================================
 
-  if (document.fonts && document.fonts.ready) {
-    document.fonts.ready.then(function() { setTimeout(init, 100); });
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
   } else {
-    setTimeout(init, 500);
+    init();
   }
 
 })();

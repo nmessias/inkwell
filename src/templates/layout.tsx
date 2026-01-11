@@ -66,6 +66,7 @@ export function Layout({
 export interface ReaderLayoutProps {
   title: string;
   settings?: ReaderSettings;
+  initialPage?: number;
 }
 
 /**
@@ -75,8 +76,13 @@ export function ReaderLayout({
   title,
   children,
   settings = DEFAULT_READER_SETTINGS,
+  initialPage = 1,
 }: PropsWithChildren<ReaderLayoutProps>): JSX.Element {
   const bodyClass = settings.dark ? "dark-mode" : "";
+  
+  // Inline script to disable browser scroll restoration and set initial page
+  // Must run before any content renders to prevent flash
+  const initScript = `if('scrollRestoration'in history)history.scrollRestoration='manual';window.__INITIAL_PAGE__=${initialPage};`;
   
   return (
     <>
@@ -86,6 +92,7 @@ export function ReaderLayout({
           <meta charset="UTF-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
           <title safe>{title} - Tome</title>
+          <script>{initScript as "safe"}</script>
           <link rel="stylesheet" href={`/public/css/reader.css?v=${APP_VERSION}`} />
         </head>
         <body class={bodyClass || undefined}>
